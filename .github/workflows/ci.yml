@@ -1,0 +1,154 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Elixir ${{ matrix.elixir }} / OTP ${{ matrix.otp }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Oldest supported pair, then the newest OTP of each Elixir line.
+          - { elixir: "1.16", otp: "26" }
+          - { elixir: "1.18", otp: "27" }
+          - { elixir: "1.20", otp: "28" }
+          - { elixir: "1.20", otp: "29" }
+    env:
+      MIX_ENV: test
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: erlef/setup-beam@v1
+        id: beam
+        with:
+          elixir-version: ${{ matrix.elixir }}
+          otp-version: ${{ matrix.otp }}
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            deps
+            _build
+          key: test-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-${{ hashFiles('mix.lock') }}
+
+      - run: mix deps.get
+      - run: mix compile --warnings-as-errors
+      # The interop tests depend on the tools of the system; their own job
+      # below pins them.
+      - run: mix test --exclude interop
+        env:
+          FUZZ_ROUNDS: "1000"
+
+  # Other implementations read what cmsex writes, and write what it reads:
+  # the OpenSSL 3 of the system, the certtool of GnuTLS, Python's
+  # cryptography and the jarsigner of a JDK.
+  interop:
+    name: Interop with OpenSSL, GnuTLS, Python and Java
+    runs-on: ubuntu-24.04
+    env:
+      MIX_ENV: test
+      CMSEX_REQUIRE_INTEROP: openssl,certtool,python,jarsigner
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: erlef/setup-beam@v1
+        id: beam
+        with:
+          elixir-version: "1.20"
+          otp-version: "29"
+
+      - uses: actions/setup-python@v6
+        id: python
+        with:
+          python-version: "3.13"
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            deps
+            _build
+          key: interop-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-${{ hashFiles('mix.lock') }}
+
+      - run: sudo apt-get update && sudo apt-get install -y gnutls-bin
+      - run: pip install cryptography
+      - run: |
+          openssl version
+          certtool --version | head -1
+          jarsigner -version
+      - run: mix deps.get
+      - run: mix test --only interop
+        env:
+          CMSEX_PYTHON: ${{ steps.python.outputs.python-path }}
+
+  # The same suite on an OpenSSL 3 whose "legacy" provider cannot be loaded,
+  # as on many systems: RC2 is gone from :crypto, and the messages that use
+  # it must fail with a clear error.
+  no-legacy:
+    name: OpenSSL 3 without the legacy provider
+    runs-on: ubuntu-24.04
+    container: hexpm/elixir:1.20.4-erlang-29.1.2-alpine-3.24.2
+    env:
+      MIX_ENV: test
+      CMSEX_EXPECT_NO_LEGACY: "1"
+    steps:
+      - run: apk add --no-cache git
+      - uses: actions/checkout@v5
+      - name: Hide the OpenSSL providers
+        run: |
+          mkdir -p "$RUNNER_TEMP/no-modules"
+          echo "OPENSSL_MODULES=$RUNNER_TEMP/no-modules" >> "$GITHUB_ENV"
+      - name: Show what :crypto has
+        run: |
+          elixir -e '
+            [{_, _, version}] = :crypto.info_lib()
+            ciphers = :crypto.supports(:ciphers)
+            IO.puts("#{version}: rc2_cbc #{:rc2_cbc in ciphers}")
+            if :rc2_cbc in ciphers, do: System.halt(1)
+          '
+      - run: mix local.hex --force && mix local.rebar --force
+      - run: mix deps.get
+      - run: mix test --exclude interop
+
+  lint:
+    name: Format, Credo, Dialyzer, docs
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: erlef/setup-beam@v1
+        id: beam
+        with:
+          elixir-version: "1.20"
+          otp-version: "29"
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            deps
+            _build
+          key: lint-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-${{ hashFiles('mix.lock') }}
+
+      - run: mix deps.get
+      - run: mix deps.unlock --check-unused
+      - run: mix format --check-formatted
+      - run: mix compile --warnings-as-errors
+      - run: mix credo --strict
+      - run: mix dialyzer --format github
+      - run: mix docs --warnings-as-errors
