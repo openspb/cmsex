@@ -19,7 +19,7 @@ defmodule Cmsex.Attribute do
       [<<0x17, 13, "261023120000Z">>]
   """
 
-  alias Cmsex.{DER, OID}
+  alias Cmsex.{Algorithm, Certificate, DER, Digest, OID}
 
   @type t :: %__MODULE__{type: atom() | tuple(), values: [binary()]}
 
@@ -70,6 +70,74 @@ defmodule Cmsex.Attribute do
     description = if description, do: [{:utf8, description}], else: []
     value = DER.encode({:seq, description ++ [{:oid, content_type}]})
     %__MODULE__{type: :content_hint, values: [value]}
+  end
+
+  @doc """
+  The content-type attribute (RFC 5652, 11.1). `Cmsex.sign/3` writes it
+  itself; this is for code that builds a SignerInfo some other way.
+  """
+  @spec content_type(atom() | tuple()) ::
+          %__MODULE__{type: :content_type, values: [binary(), ...]}
+  def content_type(content_type),
+    do: %__MODULE__{type: :content_type, values: [DER.encode({:oid, content_type})]}
+
+  @doc """
+  The signing-certificate-v2 attribute (RFC 5035), which binds the signature
+  to the certificate of the signer, `certificate` in DER: an ESSCertIDv2
+  with its hash and, unless `issuer_serial: false`, its issuer and serial
+  number.
+
+  Options: `:hash`, `:sha256` (the default, which the encoding leaves out),
+  `:sha224`, `:sha384` or `:sha512`; `:issuer_serial` (true).
+
+  `Cmsex.verify/2` checks it, and the older signing-certificate attribute
+  (RFC 2634, 5.4), against the certificate that verified the signature.
+  """
+  @spec signing_certificate_v2(binary(), keyword()) ::
+          %__MODULE__{type: :signing_certificate_v2, values: [binary(), ...]}
+  def signing_certificate_v2(certificate, opts \\ []) when is_binary(certificate) do
+    {hash, issuer_serial?} = ess_options!(opts)
+
+    cert =
+      case Certificate.parse(certificate) do
+        {:ok, cert} -> cert
+        :error -> raise ArgumentError, "not a certificate in DER"
+      end
+
+    algorithm = if hash == :sha256, do: [], else: [Algorithm.digest_identifier(hash)]
+
+    issuer_serial =
+      if issuer_serial?,
+        do: [{:seq, [{:seq, [{:explicit, 4, {:raw, cert.issuer}}]}, {:int, cert.serial}]}],
+        else: []
+
+    id = {:seq, algorithm ++ [{:octets, Digest.hash(hash, cert.der)}] ++ issuer_serial}
+    %__MODULE__{type: :signing_certificate_v2, values: [DER.encode({:seq, [{:seq, [id]}]})]}
+  end
+
+  defp ess_options!(opts) do
+    unless Keyword.keyword?(opts) and Keyword.keys(opts) -- [:hash, :issuer_serial] == [],
+      do:
+        raise(
+          ArgumentError,
+          "expected the options :hash and :issuer_serial, got: #{inspect(opts)}"
+        )
+
+    hash = Keyword.get(opts, :hash, :sha256)
+    issuer_serial? = Keyword.get(opts, :issuer_serial, true)
+
+    unless hash in [:sha224, :sha256, :sha384, :sha512],
+      do:
+        raise(
+          ArgumentError,
+          ":hash must be :sha224, :sha256, :sha384 or :sha512, got: #{inspect(hash)}"
+        )
+
+    unless is_boolean(issuer_serial?),
+      do:
+        raise(ArgumentError, ":issuer_serial must be a boolean, got: #{inspect(issuer_serial?)}")
+
+    {hash, issuer_serial?}
   end
 
   @doc false

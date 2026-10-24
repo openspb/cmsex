@@ -14,7 +14,13 @@ defmodule Cmsex.Options do
     max_attributes: 64,
     allow_sha1: false,
     min_rsa_bits: 2048,
-    ed25519_digest: :lenient
+    ed25519_digest: :lenient,
+    content: nil,
+    certificates: [],
+    signers: :all,
+    trust: nil,
+    path_validation: [],
+    countersignatures: false
   }
 
   @type limit :: :max_depth | :max_elements | :max_signers | :max_certificates | :max_attributes
@@ -66,6 +72,54 @@ defmodule Cmsex.Options do
         )
   end
 
+  defp check!(:content, value) do
+    unless content?(value),
+      do:
+        raise(
+          ArgumentError,
+          ":content must be a binary, {:stream, enumerable} or {:digest, hash, binary}, " <>
+            "got: #{inspect(value, limit: 5)}"
+        )
+  end
+
+  defp check!(:certificates, value), do: binaries!(:certificates, value)
+  defp check!(:trust, nil), do: :ok
+  defp check!(:trust, value), do: binaries!(:trust, value)
+
+  defp check!(:signers, value) do
+    unless value in [:all, :any],
+      do: raise(ArgumentError, ":signers must be :all or :any, got: #{inspect(value)}")
+  end
+
+  defp check!(:path_validation, value) do
+    unless Keyword.keyword?(value),
+      do: raise(ArgumentError, ":path_validation must be a keyword list, got: #{inspect(value)}")
+  end
+
+  defp check!(:countersignatures, value) do
+    unless is_boolean(value),
+      do: raise(ArgumentError, ":countersignatures must be a boolean, got: #{inspect(value)}")
+  end
+
   # The other options are checked where they are used.
   defp check!(_key, _value), do: :ok
+
+  defp binaries!(key, value) do
+    unless is_list(value) and Enum.all?(value, &is_binary/1),
+      do:
+        raise(
+          ArgumentError,
+          "#{inspect(key)} must be a list of DER binaries, got: #{inspect(value, limit: 5)}"
+        )
+  end
+
+  @doc "Whether `value` is content as the functions take it."
+  @spec content?(term()) :: boolean()
+  def content?(value) when is_binary(value), do: true
+  def content?({:stream, enumerable}), do: Enumerable.impl_for(enumerable) != nil
+
+  def content?({:digest, hash, digest}) when is_binary(digest),
+    do: hash in Cmsex.Digest.hashes() and byte_size(digest) == Cmsex.Digest.size(hash)
+
+  def content?(_value), do: false
 end

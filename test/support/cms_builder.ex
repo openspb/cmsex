@@ -5,7 +5,7 @@ defmodule Cmsex.TestCMS do
   # broken attributes. Each function takes the fields as options and
   # returns DER, or a DER term with `term: true`.
 
-  alias Cmsex.DER
+  alias Cmsex.{Algorithm, Certificate, DER, Digest, Key, TestPKI}
 
   @doc """
   A ContentInfo with a SignedData. Options: `:version` (1),
@@ -74,7 +74,7 @@ defmodule Cmsex.TestCMS do
     [
       {:int, Keyword.get(opts, :version, 1)},
       sid,
-      {:seq, [{:oid, Keyword.get(opts, :digest, :sha256)}]},
+      digest_identifier(Keyword.get(opts, :digest, :sha256)),
       signed,
       Keyword.get(opts, :signature_algorithm, {:seq, [{:oid, :rsa_encryption}, :null]}),
       {:octets, Keyword.get(opts, :signature, <<1, 2, 3>>)},
@@ -82,6 +82,127 @@ defmodule Cmsex.TestCMS do
     ]
     |> Enum.reject(&is_nil/1)
     |> then(&DER.encode({:seq, &1}))
+  end
+
+  defp digest_identifier({:seq, _} = term), do: term
+  defp digest_identifier(hash), do: Algorithm.digest_identifier(hash)
+
+  @doc """
+  A SignerInfo signed with the test key `key` for the certificate `cert`,
+  written field by field, apart from the signing code of the library.
+  Options:
+
+    * `:content` - what the signature covers (`"content"`); for a
+      countersignature, the signature value of the parent.
+    * `:content_type` - the content-type attribute (`:data`), or `nil` to
+      leave it out.
+    * `:digest` - the digest algorithm (`:sha256`; `:sha512` for Ed25519;
+      `:shake256_len` for Ed448, `:shake256` without attributes).
+    * `:pss` - RSASSA-PSS rather than PKCS #1 v1.5.
+    * `:attributes` - `false` for no signed attributes.
+    * `:extra` - more signed attributes, as DER.
+    * `:message_digest` - another value for that attribute.
+    * `:sid` - `:issuer_and_serial` (default), `:ski`, or a sid as
+      `signer_info/1` takes it.
+    * `:version` - instead of the right one.
+    * `:signature_algorithm` - a DER term instead of the right one.
+    * `:unsigned` - unsigned attributes, as DER.
+    * `:tamper` - `true` flips a bit of the signature.
+  """
+  def sign(key, cert, opts \\ []) do
+    private = TestPKI.private(key)
+    {:ok, certificate} = Certificate.parse(cert)
+    content = Keyword.get(opts, :content, "content")
+    attributes? = Keyword.get(opts, :attributes, true)
+    scheme = Key.scheme(private, if(Keyword.get(opts, :pss), do: :pss, else: :pkcs1))
+    digest = Keyword.get_lazy(opts, :digest, fn -> default_digest(scheme, attributes?) end)
+    hash = if scheme in [:ed25519, :ed448], do: nil, else: digest
+    tbs = if attributes?, do: signed_attributes(content, digest, opts)
+
+    signature =
+      Key.sign(private, scheme, hash, signed_input(tbs || content, hash), pss(scheme, digest))
+
+    signature = if Keyword.get(opts, :tamper), do: flip(signature), else: signature
+    {sid, version} = sid(Keyword.get(opts, :sid, :issuer_and_serial), certificate)
+
+    signer_info(
+      version: Keyword.get(opts, :version, version),
+      sid: sid,
+      digest: digest,
+      signed: tbs && {:raw, DER.retag(tbs, 0xA0)},
+      signature_algorithm:
+        Keyword.get_lazy(opts, :signature_algorithm, fn ->
+          Algorithm.signature_identifier(scheme, hash)
+        end),
+      signature: signature,
+      unsigned: Keyword.get(opts, :unsigned)
+    )
+  end
+
+  # EdDSA signs the message itself; the others, its digest.
+  defp signed_input(data, nil), do: data
+  defp signed_input(data, hash), do: Digest.hash(hash, data)
+
+  defp pss(:rsa_pss, hash),
+    do: %{hash: hash, mgf_hash: hash, salt_length: Digest.size(hash), trailer_field: 1}
+
+  defp pss(_scheme, _hash), do: nil
+
+  defp sid(:issuer_and_serial, cert), do: {{:issuer_and_serial, cert.issuer, cert.serial}, 1}
+  defp sid(:ski, cert), do: {{:subject_key_identifier, cert.subject_key_identifier}, 3}
+  defp sid({:subject_key_identifier, _} = sid, _cert), do: {sid, 3}
+  defp sid({:issuer_and_serial, _, _} = sid, _cert), do: {sid, 1}
+
+  defp default_digest(:ed25519, _attributes?), do: :sha512
+  defp default_digest(:ed448, true), do: :shake256_len
+  defp default_digest(:ed448, false), do: :shake256
+  defp default_digest(_scheme, _attributes?), do: :sha256
+
+  defp signed_attributes(content, digest, opts) do
+    content_type =
+      case Keyword.get(opts, :content_type, :data) do
+        nil -> []
+        type -> [attribute(:content_type, [{:oid, type}])]
+      end
+
+    message_digest =
+      Keyword.get_lazy(opts, :message_digest, fn -> Digest.hash(digest, content) end)
+
+    attributes =
+      content_type ++
+        [attribute(:message_digest, [{:octets, message_digest}])] ++ Keyword.get(opts, :extra, [])
+
+    DER.encode({:set, Enum.map(attributes, &{:raw, &1})})
+  end
+
+  @doc "A SignerInfo in DER with `attributes` (DER) as its unsigned attributes."
+  def put_unsigned(signer_info, attributes) do
+    {:ok, element} = DER.decode(signer_info)
+
+    fields =
+      element
+      |> DER.children()
+      |> Enum.reject(&match?({0xA1, _, _}, &1))
+      |> Enum.map(&{:raw, elem(&1, 2)})
+
+    DER.encode({:seq, fields ++ [{:constructed, 0xA1, Enum.map(attributes, &{:raw, &1})}]})
+  end
+
+  @doc "The signature value of a SignerInfo in DER."
+  def signature_of(signer_info) do
+    {:ok, element} = DER.decode(signer_info)
+
+    {:ok, signer_info} =
+      Cmsex.SignerInfo.parse(element, Cmsex.Options.take!([], Cmsex.Options.limits()))
+
+    signer_info.signature
+  end
+
+  @doc "Flips the last bit of a binary."
+  def flip(bin) do
+    size = byte_size(bin) - 1
+    <<head::binary-size(size), last>> = bin
+    <<head::binary, Bitwise.bxor(last, 1)>>
   end
 
   @doc "An Attribute in DER, with values as DER terms."

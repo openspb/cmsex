@@ -3,9 +3,22 @@ defmodule Cmsex do
   Cryptographic Message Syntax (CMS, RFC 5652) in pure Elixir.
   """
 
-  alias Cmsex.{Error, Options, PEM, SignedData}
+  alias Cmsex.{Error, Options, PEM, SignedData, Verified, Verify}
 
   @decode_options Options.limits()
+
+  @verify_options Options.limits() ++
+                    [
+                      :content,
+                      :certificates,
+                      :signers,
+                      :trust,
+                      :path_validation,
+                      :countersignatures,
+                      :allow_sha1,
+                      :min_rsa_bits,
+                      :ed25519_digest
+                    ]
 
   @doc """
   Reads a SignedData message without verifying it, for inspection and for
@@ -54,5 +67,88 @@ defmodule Cmsex do
       {:ok, certificates} -> certificates
       {:error, error} -> raise error
     end
+  end
+
+  @doc """
+  Verifies the signers of a SignedData message, in DER, BER or PEM.
+
+  A valid signature is not trust. Without `:trust`, `{:ok, verified}` only
+  says that the key of a certificate signed the content, and that
+  certificate may have come in the message itself, from anyone. Give the
+  roots you trust in `:trust` to know who signed.
+
+  For each signer, the checks are those of RFC 5652, 5.6: a certificate
+  that matches its identifier, from `:certificates` or from the message;
+  algorithms that are allowed and agree with each other and with the key;
+  the content-type, message-digest and CMSAlgorithmProtection attributes;
+  the signing-certificate attributes, when present; the signature; and,
+  with `:trust`, the certificate path. When several certificates match the
+  identifier, each is tried, and the one that verified is returned.
+
+  Options:
+
+    * `:content` - the content of a detached message: a binary,
+      `{:stream, enumerable}`, or `{:digest, hash, digest}`, already
+      hashed. A stream is read once for all the digests, and once more
+      only for an EdDSA signer without signed attributes, which signs the
+      whole content and so needs it in memory; a digest is not enough for
+      that signer (`:content_required`). Content given for a message that
+      carries its own is `:unexpected_content`.
+    * `:certificates` - certificates in DER to find the signers in, tried
+      before those of the message (`[]`).
+    * `:signers` - `:all` (the default) fails at the first signer that does
+      not verify; `:any` needs one, and returns only those that verified.
+    * `:trust` - root certificates in DER. The path of each signer is built
+      from the certificates at hand and validated by
+      `:public_key.pkix_path_validation/3`, at the current time; the
+      signer's key usage, if any, must allow digitalSignature or
+      nonRepudiation. A failure is `:untrusted`, with the reason in
+      `detail`.
+    * `:path_validation` - options for `:public_key.pkix_path_validation/3`,
+      such as a `:verify_fun` that checks revocation (`[]`).
+    * `:countersignatures` - also verify the countersignatures of each
+      signer (`false`).
+    * `:allow_sha1` - accept SHA-1 (`false`). MD5 is never accepted.
+    * `:min_rsa_bits` - the shortest RSA key accepted (2048).
+    * `:ed25519_digest` - `:lenient` (the default) accepts an Ed25519 signer
+      whose digest algorithm is a SHA-2 other than SHA-512, and says so in
+      its `:deviations`; `:strict` refuses it.
+    * the limits of `decode/2`.
+
+  The signing-time attribute is returned as the signer's claim; it is never
+  the time at which the path is validated.
+  """
+  @spec verify(binary(), keyword()) :: {:ok, Verified.t()} | {:error, Error.t()}
+  def verify(cms, opts \\ []) do
+    opts = Options.take!(opts, @verify_options)
+    with {:ok, der} <- PEM.input(cms), do: Verify.verify(der, opts)
+  end
+
+  @doc "Like `verify/2`, but raises `Cmsex.Error`."
+  @spec verify!(binary(), keyword()) :: Verified.t()
+  def verify!(cms, opts \\ []) do
+    case verify(cms, opts) do
+      {:ok, verified} -> verified
+      {:error, error} -> raise error
+    end
+  end
+
+  @doc """
+  The result of each signer, rather than the first failure. Takes the
+  options of `verify/2`, except `:signers`.
+
+      {:ok, signed_data, [{signer_info, {:ok, signer}}, {signer_info, {:error, error}}]}
+
+  An error that is not about one signer, such as a malformed message, a
+  missing content or a message without signers, is returned as
+  `{:error, error}`.
+  """
+  @spec verify_each(binary(), keyword()) ::
+          {:ok, SignedData.t(),
+           [{Cmsex.SignerInfo.t(), {:ok, Verified.signer()} | {:error, Error.t()}}]}
+          | {:error, Error.t()}
+  def verify_each(cms, opts \\ []) do
+    opts = Options.take!(opts, @verify_options -- [:signers])
+    with {:ok, der} <- PEM.input(cms), do: Verify.verify_each(der, opts)
   end
 end
