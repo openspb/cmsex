@@ -50,6 +50,15 @@ defmodule Cmsex.VerifyTest do
     )
   end
 
+  # The public key of a DSA certificate of RFC 4134, and its parameters.
+  defp dsa_key(name) do
+    {:OTPCertificate, tbs, _algorithm, _signature} =
+      :public_key.pkix_decode_cert(rfc4134(name), :otp)
+
+    {:OTPSubjectPublicKeyInfo, {:PublicKeyAlgorithm, _oid, parameters}, key} = elem(tbs, 7)
+    {key, parameters}
+  end
+
   defp reason({:error, %Error{reason: reason}}), do: reason
   defp attribute_der(%Attribute{} = attribute), do: DER.encode(Attribute.to_term(attribute))
 
@@ -96,6 +105,22 @@ defmodule Cmsex.VerifyTest do
         assert {:error, %Error{reason: :unsupported_algorithm, detail: @dsa_with_sha1, signer: 0}} =
                  Cmsex.verify(rfc4134(unquote(name) <> ".bin"), allow_sha1: true)
       end
+    end
+
+    # OpenSSL does not verify 4.6, but the example is sound: the certificate
+    # of its second signer, Diane, leaves out the DSA parameters, which come
+    # from those of Carl, the issuer (RFC 3279, 2.3.2), and OpenSSL cannot
+    # read such a key. Cmsex has no DSA, so :public_key checks it here.
+    test "4.6 is sound, with the DSA parameters of Diane inherited from Carl" do
+      {:ok, sd} = Cmsex.decode(rfc4134("4.6.bin"))
+      [alice, diane] = sd.signer_infos
+      {alice_key, {:params, alice_parameters}} = dsa_key("AliceDSSSignByCarlNoInherit.cer")
+      {diane_key, :asn1_NOVALUE} = dsa_key("DianeDSSSignByCarlInherit.cer")
+      {_carl_key, {:params, carl_parameters}} = dsa_key("CarlDSSSelf.cer")
+
+      assert alice.signed_attributes == nil and diane.signed_attributes == nil
+      assert :public_key.verify(sd.content, :sha, alice.signature, {alice_key, alice_parameters})
+      assert :public_key.verify(sd.content, :sha, diane.signature, {diane_key, carl_parameters})
     end
 
     test "4.4 has an RSA countersignature, verified on its own" do
