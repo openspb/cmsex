@@ -15,8 +15,8 @@ defmodule Cmsex.Recipient do
 
   The certificate is read, and its key checked, by `Cmsex.encrypt/3`; the
   functions here check the options, and raise `ArgumentError` for one that
-  is unknown or of the wrong kind. `Inspect` leaves the key and the
-  password out.
+  is unknown, given twice or of the wrong kind. `Inspect` leaves the key
+  and the password out.
   """
 
   @type t :: %__MODULE__{
@@ -277,6 +277,7 @@ defmodule Cmsex.Recipient do
       raise ArgumentError, "unknown option #{inspect(key)}"
     end
 
+    Cmsex.Options.unique!(opts)
     Map.merge(defaults, Map.new(opts))
   end
 

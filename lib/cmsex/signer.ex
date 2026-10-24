@@ -112,8 +112,8 @@ defmodule Cmsex.Signer do
 
   @doc """
   A signer from a map, a keyword list or a signer, with its fields
-  checked. A field that is unknown, missing or of the wrong kind raises
-  `ArgumentError`; whether the key and the certificate can be read is
+  checked. A field that is unknown, missing, given twice or of the wrong
+  kind raises `ArgumentError`; whether the key and the certificate can be read is
   checked by `Cmsex.sign/3`.
   """
   @spec new!(t() | map() | keyword()) :: t()
@@ -130,6 +130,8 @@ defmodule Cmsex.Signer do
     for key <- [:certificate, :key], not Enum.any?(fields, &match?({^key, _}, &1)) do
       raise ArgumentError, "a signer needs #{inspect(key)}"
     end
+
+    if is_list(fields), do: Cmsex.Options.unique!(fields, "signer field")
 
     __MODULE__ |> struct(fields) |> check!()
   end

@@ -37,8 +37,9 @@ defmodule Cmsex do
   Every function returns `{:ok, result}`, or `{:error, %Cmsex.Error{}}` for
   a message it cannot read or that does not check; the functions ending in
   `!` return the result alone and raise the error. An argument of the
-  wrong kind, such as an unknown option, raises `ArgumentError`: it is a
-  mistake of the calling code, not of the message.
+  wrong kind, an unknown option or an option given twice raises
+  `ArgumentError`: it is a mistake of the calling code, not of the
+  message.
 
   ## Examples
 

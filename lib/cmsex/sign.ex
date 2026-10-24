@@ -147,6 +147,7 @@ defmodule Cmsex.Sign do
       check!(key, value)
     end
 
+    Options.unique!(opts)
     @options |> Map.take(keys) |> Map.merge(Map.new(opts))
   end
 

@@ -1,8 +1,8 @@
 defmodule Cmsex.Options do
   @moduledoc false
   # The options of the public functions: checked once at the entry, with
-  # the defaults filled in, and passed on as a map. An unknown option or a
-  # value of the wrong kind raises ArgumentError.
+  # the defaults filled in, and passed on as a map. An unknown option, one
+  # given twice or a value of the wrong kind raises ArgumentError.
 
   @limits [:max_depth, :max_elements, :max_signers, :max_certificates, :max_attributes]
 
@@ -48,6 +48,7 @@ defmodule Cmsex.Options do
           raise ArgumentError, "expected a keyword list of options, got: #{inspect(other)}"
       end)
 
+    unique!(opts)
     @defaults |> Map.take(keys) |> Map.merge(given)
   end
 
@@ -114,6 +115,21 @@ defmodule Cmsex.Options do
           ArgumentError,
           "#{inspect(key)} must be a list of DER binaries, got: #{inspect(value, limit: 5)}"
         )
+  end
+
+  @doc """
+  Raises `ArgumentError` when a key of the keyword list `opts` comes more
+  than once: which of the values was meant cannot be told, and taking one
+  in silence could weaken a check.
+  """
+  @spec unique!(keyword(), String.t()) :: :ok
+  def unique!(opts, what \\ "option") do
+    keys = Keyword.keys(opts)
+
+    case keys -- Enum.uniq(keys) do
+      [] -> :ok
+      [key | _] -> raise ArgumentError, "the #{what} #{inspect(key)} is given more than once"
+    end
   end
 
   @doc "Whether `value` is content as the functions take it."

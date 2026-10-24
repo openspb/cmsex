@@ -37,8 +37,8 @@ defmodule Cmsex.Compose do
   @doc """
   Checks `opts` against the keys of `defaults` and returns them as a map,
   with the defaults filled in and the content type as a name of
-  `Cmsex.OID`. An unknown option, or a value of the wrong kind, raises
-  `ArgumentError`.
+  `Cmsex.OID`. An unknown option, one given twice, or a value of the wrong
+  kind raises `ArgumentError`.
   """
   @spec options!(keyword(), map()) :: map()
   def options!(opts, defaults) do
@@ -50,6 +50,7 @@ defmodule Cmsex.Compose do
       check!(key, value)
     end
 
+    Options.unique!(opts)
     opts = Map.merge(defaults, Map.new(opts))
     %{opts | content_type: OID.name(OID.oid(opts.content_type))}
   end

@@ -116,12 +116,16 @@ defmodule Cmsex.Attribute do
   end
 
   defp ess_options!(opts) do
-    unless Keyword.keyword?(opts) and Keyword.keys(opts) -- [:hash, :issuer_serial] == [],
+    known? = Keyword.keyword?(opts) and Enum.all?(opts, &(elem(&1, 0) in [:hash, :issuer_serial]))
+
+    unless known?,
       do:
         raise(
           ArgumentError,
           "expected the options :hash and :issuer_serial, got: #{inspect(opts)}"
         )
+
+    Cmsex.Options.unique!(opts)
 
     hash = Keyword.get(opts, :hash, :sha256)
     issuer_serial? = Keyword.get(opts, :issuer_serial, true)

@@ -71,3 +71,6 @@ The first release.
   `:max_recipients` and `:max_iterations`.
 - SHA-1 is refused unless `allow_sha1: true`, MD5 always, and RSA keys
   shorter than `:min_rsa_bits` (2048).
+- Options are checked: an unknown option, one given twice or a value of
+  the wrong kind raises `ArgumentError`, which never shows a key or the
+  content.
