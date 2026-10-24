@@ -455,18 +455,18 @@ defmodule Cmsex.InteropTest do
 
   ## Python reads the certificates
 
-  @python_reads """
-  import sys
-  from cryptography.hazmat.primitives.serialization import Encoding, pkcs7
-  for certificate in pkcs7.load_der_pkcs7_certificates(open(sys.argv[1], "rb").read()):
-      print(certificate.public_bytes(Encoding.DER).hex())
-  """
-
   python = Interop.find(:python)
 
   describe "python reads" do
     if python do
       @python python
+
+      @python_reads """
+      import sys
+      from cryptography.hazmat.primitives.serialization import Encoding, pkcs7
+      for certificate in pkcs7.load_der_pkcs7_certificates(open(sys.argv[1], "rb").read()):
+          print(certificate.public_bytes(Encoding.DER).hex())
+      """
 
       test "the certificates of signed and certs-only messages", %{tmp_dir: dir} do
         {bin, _version} = @python

@@ -77,6 +77,9 @@ defmodule Cmsex.Trust do
     end
   rescue
     _ -> {:error, :invalid_certificate}
+  catch
+    # The ASN.1 decoders of :public_key exit on some malformed extensions.
+    :exit, _ -> {:error, :invalid_certificate}
   end
 
   @doc "Whether `issuer` may have issued `cert`: by name, and by key identifier when both have one."
