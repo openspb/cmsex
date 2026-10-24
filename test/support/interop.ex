@@ -79,6 +79,37 @@ defmodule Cmsex.Interop do
     end)
   end
 
+  @doc """
+  Whether an OpenSSL signs Ed25519 in CMS and verifies its own message.
+  OpenSSL 3.0 does neither ("invalid digest"); 3.6 does both.
+  """
+  def openssl_ed25519?({path, _version}) do
+    dir = Path.join(System.tmp_dir!(), "cmsex_ed25519_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+
+    try do
+      ed25519_round_trip(path, dir)
+    after
+      File.rm_rf!(dir)
+    end
+  end
+
+  defp ed25519_round_trip(path, dir) do
+    message = Path.join(dir, "message.p7s")
+    material = &Cmsex.TestFixtures.path/1
+
+    sign =
+      ~w(cms -sign -binary -nodetach -md sha512 -outform DER -in) ++
+        [material.("content.txt"), "-signer", material.("ed25519.crt")] ++
+        ["-inkey", material.("ed25519.key"), "-out", message]
+
+    verify =
+      ~w(cms -verify -binary -inform DER -in) ++
+        [message, "-CAfile", material.("ca.crt"), "-out", Path.join(dir, "content.out")]
+
+    match?({_, 0}, run(path, sign)) and match?({_, 0}, run(path, verify))
+  end
+
   def required?(tool) do
     names = System.get_env("CMSEX_REQUIRE_INTEROP", "") |> String.split(",", trim: true)
     "all" in names or Atom.to_string(tool) in names

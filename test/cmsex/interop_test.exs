@@ -49,7 +49,8 @@ defmodule Cmsex.InteropTest do
     {:libressl, "ed448", :all, :all},
     # OpenSSL verifies Ed25519 only with signed attributes, and Ed448 not at
     # all: it knows neither id-shake256-len (RFC 8419) nor Ed448 over the
-    # content itself.
+    # content itself. OpenSSL 3.0 has no Ed25519 in CMS: see
+    # Interop.openssl_ed25519?/1.
     {:openssl, "ed25519", :none, :all},
     {:openssl, "ed448", :all, :all},
     # GnuTLS verifies Ed448 only without signed attributes.
@@ -61,12 +62,16 @@ defmodule Cmsex.InteropTest do
 
   for tool <- [:openssl, :libressl, :certtool, :jarsigner] do
     found = Interop.find(tool)
+    no_ed25519? = tool == :openssl and found != nil and not Interop.openssl_ed25519?(found)
 
     describe "#{tool} verifies" do
       cond do
         found ->
           for {name, key, opts} <- @algorithms do
             if {tool, key, :all, :all} in @unsupported, do: @tag(skip: "#{tool} does not take it")
+
+            if key == "ed25519" and no_ed25519?,
+              do: @tag(skip: "this OpenSSL has no Ed25519 in CMS")
 
             test name, %{tmp_dir: dir} do
               they_verify(
@@ -363,11 +368,15 @@ defmodule Cmsex.InteropTest do
         jarsigner: @jarsigner_signs
       ] do
     found = Interop.find(tool)
+    no_ed25519? = tool == :openssl and found != nil and not Interop.openssl_ed25519?(found)
 
     describe "#{tool} signs" do
       cond do
         found ->
           for {name, key, opts} <- cases do
+            if key == "ed25519" and no_ed25519?,
+              do: @tag(skip: "this OpenSSL has no Ed25519 in CMS")
+
             test name, %{tmp_dir: dir} do
               they_sign(
                 unquote(tool),

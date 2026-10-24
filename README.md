@@ -334,7 +334,8 @@ attributes, with one and two signers, and after `add_signer/3`,
 the signatures of JAR files. What they do not verify:
 
 * LibreSSL 3.3, that of macOS: EdDSA.
-* OpenSSL: Ed25519 without signed attributes, and Ed448 at all.
+* OpenSSL: Ed25519 without signed attributes, and Ed448 at all; OpenSSL 3.0
+  has no Ed25519 in CMS at all.
 * GnuTLS: Ed448 with signed attributes.
 * `jarsigner`: signers identified by subject key identifier.
 
