@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.1.0] - 2026-10-24
 
 The first release.
 
@@ -74,3 +74,5 @@ The first release.
 - Options are checked: an unknown option, one given twice or a value of
   the wrong kind raises `ArgumentError`, which never shows a key or the
   content.
+
+[0.1.0]: https://github.com/openspb/cmsex/releases/tag/v0.1.0

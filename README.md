@@ -28,9 +28,6 @@ bundles of S/MIME, signed documents and many other systems.
   tell nothing about the secrets (RFC 3218), and no key or password in
   `inspect/1` or in error messages.
 
-> **Status: v0.1.** The API is expected to stay, but may still change
-> before 1.0.
-
 ## Installation
 
 ```elixir
