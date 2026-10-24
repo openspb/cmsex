@@ -40,6 +40,8 @@ defmodule Cmsex.MixProject do
     [
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       {:stream_data, "~> 1.1", only: [:dev, :test]},
+      # For the README example that signs with the key of a .pfx file.
+      {:pkcs12, "~> 0.1", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]

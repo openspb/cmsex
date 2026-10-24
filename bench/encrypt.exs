@@ -37,9 +37,10 @@ B.measure("1 KiB, KEK: decrypt", fn -> {:ok, _} = Cmsex.decrypt(cms, kek: {"benc
 for iterations <- [600_000, 10_000] do
   recipient = Recipient.password("correct horse battery staple", iterations: iterations)
   {:ok, cms} = Cmsex.encrypt(content, recipient)
-  label = "1 KiB, password, #{iterations} iterations: decrypt"
+  label = "1 KiB, password, #{iterations} iterations"
+  B.measure(label <> ": encrypt", fn -> {:ok, _} = Cmsex.encrypt(content, recipient) end)
 
-  B.measure(label, fn ->
+  B.measure(label <> ": decrypt", fn ->
     {:ok, _} = Cmsex.decrypt(cms, password: "correct horse battery staple")
   end)
 end
