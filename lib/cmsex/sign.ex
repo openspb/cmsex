@@ -28,18 +28,66 @@ defmodule Cmsex.Sign do
   @spec sign(term(), term(), keyword()) :: {:ok, binary()} | {:error, Error.t()}
   def sign(content, signers, opts) do
     opts = options!(content, opts)
+
+    with {:ok, signed} <- signer_infos(content, signers, opts) do
+      {:ok,
+       encode(
+         signed.prepared,
+         signed.signer_infos,
+         content,
+         signed.certificates,
+         signed.crls,
+         opts
+       )}
+    end
+  end
+
+  @doc """
+  The SignerInfos of `signers` over `content`, in DER, with what the
+  message gains: the digest identifiers, the certificates and the CRLs.
+  `opts` is a map of the options of `options/1`; a `:content_type` of
+  `nil` makes countersignatures (RFC 5652, 11.4), without the
+  content-type attribute.
+
+  `check` is `{hashes, fun}`: the digests of the content for `hashes` and
+  those of the signers go to `fun` before anything is signed, which
+  returns `:ok` or an error.
+  """
+  @spec signer_infos(
+          term(),
+          term(),
+          map(),
+          {[Digest.hash()], (map() -> :ok | {:error, Error.t()})}
+        ) ::
+          {:ok, map()} | {:error, Error.t()}
+  def signer_infos(content, signers, opts, check \\ {[], fn _digests -> :ok end}) do
     signers = signers!(signers)
+    {hashes, check} = check
 
     with {:ok, prepared} <- prepare(signers, content, opts, 0, []),
          {:ok, certificates} <- certificates(opts.certificates, signers),
-         {:ok, crls} <- crls(opts.crls) do
-      digests = Digest.many(content, Enum.map(prepared, & &1.digest))
-
-      with {:ok, signer_infos} <- sign_all(prepared, content, digests, opts, []) do
-        {:ok, encode(prepared, signer_infos, content, certificates, crls, opts)}
-      end
+         {:ok, crls} <- crls(opts.crls),
+         digests = Digest.many(content, Enum.map(prepared, & &1.digest) ++ hashes),
+         :ok <- check.(digests),
+         {:ok, signer_infos} <- sign_all(prepared, content, digests, opts, []) do
+      {:ok,
+       %{
+         prepared: prepared,
+         signer_infos: signer_infos,
+         digest_ids: Enum.map(prepared, & &1.digest_id),
+         versions: Enum.map(prepared, & &1.version),
+         certificates: certificates,
+         crls: crls
+       }}
     end
   end
+
+  @doc """
+  The signing options of `keys`, checked, as a map with the defaults of
+  `Cmsex.sign/3`.
+  """
+  @spec options(keyword(), [atom()]) :: map()
+  def options(opts, keys), do: take!(opts, keys)
 
   @doc "A certificates-only SignedData; see `Cmsex.certs_only/2`."
   @spec certs_only([binary()], keyword()) :: {:ok, binary()} | {:error, Error.t()}
@@ -341,21 +389,27 @@ defmodule Cmsex.Sign do
     else
       written =
         [
-          Attribute.content_type(opts.content_type),
+          opts.content_type && Attribute.content_type(opts.content_type),
           signing_time(signer.signing_time, opts.signing_time),
           protection(signer.algorithm_protection, opts.algorithm_protection, prepared)
         ]
         |> Enum.filter(& &1)
 
-      types = [:message_digest | Enum.map(written, & &1.type)]
+      types = [:message_digest, :content_type | Enum.map(written, & &1.type)]
 
       for %Attribute{type: type} <- signer.signed_attributes, type in types do
-        raise ArgumentError, "the signed attribute #{inspect(type)} is written by Cmsex.sign/3"
+        raise ArgumentError, written_by(type, opts.content_type)
       end
 
       written ++ signer.signed_attributes
     end
   end
+
+  defp written_by(:content_type, nil),
+    do: "a countersignature has no content-type attribute (RFC 5652, 11.4)"
+
+  defp written_by(type, _content_type),
+    do: "the signed attribute #{inspect(type)} is written by the library"
 
   defp signing_time(nil, global), do: signing_time(global, nil)
   defp signing_time(false, _global), do: nil

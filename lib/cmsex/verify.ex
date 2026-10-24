@@ -63,6 +63,54 @@ defmodule Cmsex.Verify do
     end
   end
 
+  @doc """
+  Verifies the countersignature at `path` against the signature value of
+  the SignerInfo above it, which is not verified itself.
+  """
+  @spec verify_countersignature(binary(), [non_neg_integer(), ...], map()) ::
+          {:ok, Verified.signer()} | {:error, Error.t()}
+  def verify_countersignature(der, [index | rest] = path, opts) do
+    with {:ok, signed_data} <- SignedData.parse(der, opts),
+         {:ok, certificates} <- certificates(signed_data, opts.certificates),
+         {:ok, roots} <- roots(opts.trust),
+         {:ok, parent, counter} <- locate(signed_data.signer_infos, index, rest, [index], opts) do
+      ctx = %{certificates: certificates, roots: roots, opts: opts}
+
+      target = %{
+        type: nil,
+        content: parent.signature,
+        digests: Digest.many(parent.signature, hashes([counter])),
+        countersignature?: true
+      }
+
+      check(counter, path, ctx, target)
+    end
+  end
+
+  defp locate(signer_infos, index, rest, at, opts) do
+    case {Enum.fetch(signer_infos, index), rest} do
+      {:error, _} ->
+        raise ArgumentError, "the message has no signer at #{inspect(at)}"
+
+      {{:ok, signer_info}, [next | rest]} ->
+        case SignerInfo.read_countersignatures(signer_info, opts) do
+          {:ok, counters} when rest == [] -> found_counter(signer_info, counters, next, at)
+          {:ok, counters} -> locate(counters, next, rest, at ++ [next], opts)
+          {:error, error} -> {:error, %{error | signer: at ++ List.wrap(error.signer)}}
+        end
+
+      {{:ok, _signer_info}, []} ->
+        raise ArgumentError, "expected the position of a countersignature, got: #{inspect(at)}"
+    end
+  end
+
+  defp found_counter(parent, counters, index, at) do
+    case Enum.fetch(counters, index) do
+      {:ok, counter} -> {:ok, parent, counter}
+      :error -> raise ArgumentError, "the message has no signer at #{inspect(at ++ [index])}"
+    end
+  end
+
   defp all([], _ctx, acc), do: {:ok, Enum.reverse(acc)}
 
   defp all([{signer_info, index} | rest], ctx, acc) do

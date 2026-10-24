@@ -98,6 +98,29 @@ defmodule Cmsex.VerifyTest do
       end
     end
 
+    test "4.4 has an RSA countersignature, verified on its own" do
+      der = rfc4134("4.4.bin")
+      opts = [allow_sha1: true, min_rsa_bits: 1024]
+
+      assert {:ok, counter} = Cmsex.verify_countersignature(der, [0, 0], opts)
+      assert counter.index == 0
+      assert counter.certificate == rfc4134("AliceRSASignByCarl.cer")
+      assert %DateTime{} = counter.signing_time
+      assert counter.countersignatures == []
+
+      carl = rfc4134("CarlRSASelf.cer")
+
+      assert {:ok, %{path: [^carl, _alice]}} =
+               Cmsex.verify_countersignature(der, [0, 0], [trust: [carl]] ++ opts)
+
+      assert {:error, %Error{reason: :weak_algorithm, signer: [0, 0]}} =
+               Cmsex.verify_countersignature(der, [0, 0])
+
+      # The signer above, in DSA, still fails in verify/2.
+      assert :unsupported_algorithm ==
+               reason(Cmsex.verify(der, [countersignatures: true] ++ opts))
+    end
+
     test "4.3 is detached" do
       der = rfc4134("4.3.bin")
       assert :content_required == reason(Cmsex.verify(der))

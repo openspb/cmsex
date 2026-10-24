@@ -68,6 +68,16 @@ defmodule Cmsex.SignerInfo do
     raw: nil
   ]
 
+  @doc """
+  The signature value of the signer. It is what a signature time-stamp
+  covers (RFC 3161, appendix A): the time-stamp request hashes these
+  bytes, and the token goes back in an unsigned attribute with
+  `Cmsex.add_unsigned_attribute/4`. A countersignature covers it too
+  (RFC 5652, 11.4).
+  """
+  @spec signature(t()) :: binary()
+  def signature(%__MODULE__{signature: signature}), do: signature
+
   ## Attributes
 
   @doc """

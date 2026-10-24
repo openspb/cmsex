@@ -157,9 +157,14 @@ defmodule Cmsex.InteropTest do
     end
   end
 
-  defp verify_with(:certtool, bin, _key, signers, variant, dir) do
+  defp verify_with(tool, bin, _key, signers, variant, dir) do
     message = write_message(signers, variant, dir)
+    tool_verifies(tool, bin, message, variant.placement == :detached, dir)
+  end
 
+  # Whether OpenSSL, LibreSSL or GnuTLS verifies a message in a file, with
+  # content.txt as the content when it is detached.
+  defp tool_verifies(:certtool, bin, message, detached?, _dir) do
     args = [
       "--p7-verify",
       "--inder",
@@ -169,10 +174,7 @@ defmodule Cmsex.InteropTest do
       path("ca.crt")
     ]
 
-    args =
-      if variant.placement == :detached,
-        do: args ++ ["--load-data", path("content.txt")],
-        else: args
+    args = if detached?, do: args ++ ["--load-data", path("content.txt")], else: args
 
     case Interop.run(bin, args) do
       {_output, 0} -> :ok
@@ -180,17 +182,13 @@ defmodule Cmsex.InteropTest do
     end
   end
 
-  defp verify_with(_openssl, bin, _key, signers, variant, dir) do
-    message = write_message(signers, variant, dir)
+  defp tool_verifies(_openssl, bin, message, detached?, dir) do
     out = Path.join(dir, "content.out")
 
     args =
       ~w(cms -verify -binary -inform DER -in) ++ [message, "-CAfile", path("ca.crt"), "-out", out]
 
-    args =
-      if variant.placement == :detached,
-        do: args ++ ["-content", path("content.txt")],
-        else: args
+    args = if detached?, do: args ++ ["-content", path("content.txt")], else: args
 
     case Interop.run(bin, args) do
       {output, 0} -> if File.read!(out) == content(), do: :ok, else: {:error, output}
@@ -213,6 +211,73 @@ defmodule Cmsex.InteropTest do
       t == tool and k in [key, :all] and attributes in [variant.attributes, :all] and
         identifier in [variant.identifier, :all]
     end)
+  end
+
+  ## They verify messages that Cmsex changed
+
+  @token Cmsex.Attribute.new(:time_stamp_token, [<<0x30, 3, 0x02, 1, 7>>])
+
+  defp changed_messages do
+    signer = fn name, extra ->
+      struct!(Signer, [certificate: cert(name), key: key(name)] ++ extra)
+    end
+
+    ours = Cmsex.sign!(content(), signer.("rsa2048", []))
+
+    [
+      {"a signer added to a message of OpenSSL",
+       Cmsex.add_signer!(read!("o3_rsa.p7s"), signer.("p256", [])), false},
+      {"a signer added to a detached message of OpenSSL",
+       Cmsex.add_signer!(read!("o3_rsa_detached.p7s"), signer.("p384", digest: :sha384),
+         content: content()
+       ), true},
+      {"a signer by key identifier added to a message of GnuTLS",
+       Cmsex.add_signer!(
+         read!("gt_rsa.p7s"),
+         signer.("rsa3072", identifier: :subject_key_identifier)
+       ), false},
+      {"a countersignature", Cmsex.countersign!(ours, 0, signer.("p256", [])), false},
+      {"a countersignature of a countersignature",
+       ours
+       |> Cmsex.countersign!(0, signer.("p256", []))
+       |> Cmsex.countersign!([0, 0], signer.("rsa2048", [])), false},
+      {"a countersignature of a message of OpenSSL",
+       Cmsex.countersign!(read!("o3_p256.p7s"), 0, signer.("rsa2048", [])), false},
+      {"an unsigned attribute added to a message of OpenSSL",
+       Cmsex.add_unsigned_attribute!(read!("o3_two_signers.p7s"), 1, @token), false}
+    ]
+  end
+
+  for tool <- [:openssl, :libressl, :certtool] do
+    found = Interop.find(tool)
+
+    describe "#{tool} verifies messages changed by Cmsex" do
+      cond do
+        found ->
+          test "added signers, countersignatures, unsigned attributes", %{tmp_dir: dir} do
+            {bin, version} = unquote(Macro.escape(found))
+
+            failures =
+              for {{name, der, detached?}, i} <- Enum.with_index(changed_messages()),
+                  file = Path.join(dir, "changed_#{i}.p7s"),
+                  File.write!(file, der) == :ok,
+                  {:error, output} <- [tool_verifies(unquote(tool), bin, file, detached?, dir)],
+                  do: {name, output}
+
+            assert failures == [],
+                   "#{unquote(tool)} (#{version}) refused:\n#{inspect(failures, pretty: true)}"
+          end
+
+        Interop.required?(tool) ->
+          test "is found" do
+            flunk("#{unquote(tool)} was not found; see test/support/interop.ex")
+          end
+
+        true ->
+          @tag skip: "#{tool} was not found"
+          test "is found", do: :ok
+      end
+    end
   end
 
   ## They sign

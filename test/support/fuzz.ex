@@ -3,7 +3,7 @@ defmodule Cmsex.TestFuzz do
   # Inputs for the robustness tests: the messages of the fixtures, changed
   # by a few random edits, and random bytes, alone or behind the header of
   # a SignedData, so that they get past the first checks. Every public
-  # function that reads a message must return `{:ok, _}` or
+  # function that reads or changes a message must return `{:ok, _}` or
   # `{:error, %Cmsex.Error{}}` for any of them, and never raise.
 
   use ExUnitProperties
@@ -127,9 +127,10 @@ defmodule Cmsex.TestFuzz do
   end
 
   @doc """
-  Runs every reader on `input`, and returns the results that are neither
-  `{:ok, _}` nor `{:error, %Cmsex.Error{}}`, with the function. An
-  exception is caught and returned as such.
+  Runs every reader, and every function that changes a message, on
+  `input`, and returns the results that are neither `{:ok, _}` nor
+  `{:error, %Cmsex.Error{}}`, with the function. An exception is caught
+  and returned as such.
   """
   def bad_results(input, roots) do
     opts = [trust: roots, allow_sha1: true, min_rsa_bits: 1024, countersignatures: true]
@@ -142,12 +143,34 @@ defmodule Cmsex.TestFuzz do
       verify_detached: fn -> Cmsex.verify(input, content: TestFixtures.content()) end,
       verify_each: fn -> Cmsex.verify_each(input, opts) end
     ]
+    |> Kernel.++(changes(input))
     |> Enum.flat_map(fn {name, fun} ->
       case run(fun) do
         :ok -> []
         bad -> [{name, bad}]
       end
     end)
+  end
+
+  # The functions that change a message. A position that the message does
+  # not have raises ArgumentError, so they go only to the first signer of
+  # a message that has one.
+  defp changes(input) do
+    signer = %Cmsex.Signer{certificate: TestFixtures.cert("p256"), key: TestFixtures.key("p256")}
+    attribute = Cmsex.Attribute.new({1, 3, 6, 1, 4, 1, 32_473, 3}, [DER.encode(:null)])
+    added = [add_signer: fn -> Cmsex.add_signer(input, signer) end]
+
+    case Cmsex.decode(input) do
+      {:ok, %{signer_infos: [_ | _]}} ->
+        added ++
+          [
+            countersign: fn -> Cmsex.countersign(input, 0, signer) end,
+            add_unsigned_attribute: fn -> Cmsex.add_unsigned_attribute(input, 0, attribute) end
+          ]
+
+      _ ->
+        added
+    end
   end
 
   defp run(fun) do

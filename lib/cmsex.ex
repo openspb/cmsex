@@ -3,7 +3,7 @@ defmodule Cmsex do
   Cryptographic Message Syntax (CMS, RFC 5652) in pure Elixir.
   """
 
-  alias Cmsex.{Error, Options, PEM, Sign, SignedData, Signer, Verified, Verify}
+  alias Cmsex.{Attribute, Error, Options, PEM, Sign, SignedData, Signer, Update, Verified, Verify}
 
   @decode_options Options.limits()
 
@@ -153,6 +153,40 @@ defmodule Cmsex do
   end
 
   @doc """
+  Verifies one countersignature (RFC 5652, 11.4) on its own: the one at
+  `position`, such as `[0, 0]` for the first countersignature of the first
+  signer (see `t:position/0`), against the signature value of the
+  SignerInfo it countersigns, which is not verified here.
+
+  This is for a countersignature whose signer cannot be verified, such as
+  one in an algorithm the library leaves out, or when only the
+  countersignature matters. `verify/2` with `countersignatures: true`
+  checks the signers and their countersignatures together.
+
+  Returns the countersigner as in `t:Cmsex.Verified.signer/0`. Takes the
+  options of `verify/2`, except `:content` and `:signers`; with
+  `countersignatures: true`, the countersignatures below this one are
+  verified too. A position the message does not have raises
+  `ArgumentError`.
+  """
+  @spec verify_countersignature(binary(), [non_neg_integer(), ...], keyword()) ::
+          {:ok, Verified.signer()} | {:error, Error.t()}
+  def verify_countersignature(cms, position, opts \\ []) do
+    unless match?([_, _ | _], position) and Enum.all?(position, &(is_integer(&1) and &1 >= 0)),
+      do:
+        raise(
+          ArgumentError,
+          "expected the position of a countersignature, a list of two or more integers, " <>
+            "got: #{inspect(position)}"
+        )
+
+    opts = Options.take!(opts, @verify_options -- [:content, :signers])
+
+    with {:ok, der} <- PEM.input(cms),
+         do: Verify.verify_countersignature(der, position, opts)
+  end
+
+  @doc """
   Signs `content` and returns a SignedData message in DER (use
   `Cmsex.PEM.encode/2` for PEM).
 
@@ -234,4 +268,156 @@ defmodule Cmsex do
       {:error, error} -> raise error
     end
   end
+
+  ## Changing a message
+
+  @typedoc """
+  The position of a signer: an integer for a signer of the message, in
+  the order of `decode/2`, or a list for a countersignature, where `[0, 1]`
+  is the second countersignature of the first signer, counted across all
+  its countersignature attributes. `Cmsex.Error` gives positions the same
+  way.
+  """
+  @type position :: non_neg_integer() | [non_neg_integer(), ...]
+
+  @changes """
+  The message may be in DER, BER or PEM, and comes back in DER as far as
+  it was: what does not change keeps its bytes and its place, the other
+  SignerInfos, the signed part of each, the certificates and attributes
+  already there, and what is added goes after them. So every signature of
+  the message still verifies, and the positions of the signers and
+  countersignatures stay the same from one change to the next. The SETs
+  are not sorted again; an encapsulated content in BER is written in DER,
+  which changes no signature.
+  """
+
+  @doc """
+  Adds signers to a SignedData message, over the content the message
+  signs. #{@changes}
+  `signers` is one signer or a list, as in `sign/3`. The new SignerInfos
+  go after the others; their digest algorithms join digestAlgorithms, and
+  the version of the message goes up to 3 when RFC 5652, 5.1 asks for it.
+
+  A detached message needs its content in `:content`, a binary,
+  `{:stream, enumerable}` or `{:digest, hash, digest}`. It must be the
+  content the signers there signed: their message digests are checked
+  before anything is signed, and a difference is `:digest_mismatch` with
+  the position of that signer. A message with its content refuses
+  `:content` (`:unexpected_content`).
+
+  Options: `:content`, the limits of `decode/2`, and the options of
+  `sign/3` that are about the signers: `:certificates` (those of the new
+  signers are added to the message by default; `:none`; or a list of DER
+  certificates), `:crls`, `:no_attributes`, `:min_rsa_bits`, `:digest`,
+  `:rsa_padding`, `:identifier`, `:signing_time` and
+  `:algorithm_protection`. The content type is that of the message.
+  """
+  @spec add_signer(
+          binary(),
+          Signer.t() | map() | keyword() | [Signer.t() | map() | keyword()],
+          keyword()
+        ) :: {:ok, binary()} | {:error, Error.t()}
+  def add_signer(cms, signers, opts \\ []) do
+    with {:ok, der} <- PEM.input(cms), do: Update.add_signer(der, signers, opts)
+  end
+
+  @doc "Like `add_signer/3`, but raises `Cmsex.Error`."
+  @spec add_signer!(
+          binary(),
+          Signer.t() | map() | keyword() | [Signer.t() | map() | keyword()],
+          keyword()
+        ) :: binary()
+  def add_signer!(cms, signers, opts \\ []), do: bang(add_signer(cms, signers, opts))
+
+  @doc """
+  Countersigns a signer of a message, or a countersignature: a new
+  SignerInfo over the signature value of the one at `position`, added to
+  it as a countersignature attribute (RFC 5652, 11.4). #{@changes}
+  The countersignature goes at the end of the last countersignature
+  attribute of that signer, or in a new attribute at the end. Its signed
+  attributes are the message digest of the signature value, the signing
+  time and CMSAlgorithmProtection, unless turned off, and those of the
+  countersigner; never content-type. With `no_attributes: true` it signs
+  the signature value itself. `verify/2` checks it with
+  `countersignatures: true`.
+
+  `countersigners` is one signer or a list, as in `sign/3`. Options: the
+  limits of `decode/2`, and `:certificates`, `:crls`, `:no_attributes`,
+  `:min_rsa_bits`, `:digest`, `:rsa_padding`, `:identifier`,
+  `:signing_time` and `:algorithm_protection`, as in `add_signer/3`.
+
+  A position the message does not have raises `ArgumentError`.
+  """
+  @spec countersign(
+          binary(),
+          position(),
+          Signer.t() | map() | keyword() | [Signer.t() | map() | keyword()],
+          keyword()
+        ) :: {:ok, binary()} | {:error, Error.t()}
+  def countersign(cms, position, countersigners, opts \\ []) do
+    with {:ok, der} <- PEM.input(cms),
+         do: Update.countersign(der, position, countersigners, opts)
+  end
+
+  @doc "Like `countersign/4`, but raises `Cmsex.Error`."
+  @spec countersign!(
+          binary(),
+          position(),
+          Signer.t() | map() | keyword() | [Signer.t() | map() | keyword()],
+          keyword()
+        ) :: binary()
+  def countersign!(cms, position, countersigners, opts \\ []),
+    do: bang(countersign(cms, position, countersigners, opts))
+
+  @doc """
+  Adds unsigned attributes, one `Cmsex.Attribute` or a list, to the signer
+  or countersignature at `position`. #{@changes}
+  The attributes go after the unsigned attributes the signer has. This is
+  how a signature time-stamp enters a message (RFC 3161, appendix A): the
+  token is over `Cmsex.SignerInfo.signature/1`, and goes in a
+  `:time_stamp_token` attribute.
+
+      {:ok, %{signer_infos: [signer_info]}} = Cmsex.decode(cms)
+      token = time_stamp(Cmsex.SignerInfo.signature(signer_info))
+      attribute = Cmsex.Attribute.new(:time_stamp_token, [token])
+      {:ok, cms} = Cmsex.add_unsigned_attribute(cms, 0, attribute)
+
+  Options: the limits of `decode/2`. A position the message does not have
+  raises `ArgumentError`.
+  """
+  @spec add_unsigned_attribute(binary(), position(), Attribute.t() | [Attribute.t()], keyword()) ::
+          {:ok, binary()} | {:error, Error.t()}
+  def add_unsigned_attribute(cms, position, attributes, opts \\ []) do
+    attributes = attributes!(attributes)
+
+    with {:ok, der} <- PEM.input(cms),
+         do: Update.add_unsigned_attribute(der, position, attributes, opts)
+  end
+
+  @doc "Like `add_unsigned_attribute/4`, but raises `Cmsex.Error`."
+  @spec add_unsigned_attribute!(
+          binary(),
+          position(),
+          Attribute.t() | [Attribute.t()],
+          keyword()
+        ) :: binary()
+  def add_unsigned_attribute!(cms, position, attributes, opts \\ []),
+    do: bang(add_unsigned_attribute(cms, position, attributes, opts))
+
+  defp attributes!(%Attribute{} = attribute), do: [attribute]
+
+  defp attributes!([_ | _] = attributes) do
+    if Enum.all?(attributes, &match?(%Attribute{}, &1)),
+      do: attributes,
+      else: bad_attributes!()
+  end
+
+  defp attributes!(_other), do: bad_attributes!()
+
+  @spec bad_attributes!() :: no_return()
+  defp bad_attributes!,
+    do: raise(ArgumentError, "expected a Cmsex.Attribute or a list of them")
+
+  defp bang({:ok, cms}), do: cms
+  defp bang({:error, error}), do: raise(error)
 end
