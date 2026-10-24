@@ -301,34 +301,34 @@ defmodule Cmsex.InteropEncryptTest do
     end
   end
 
-  # Python: a certificate or two, AES-128 or AES-256, PKCS #1 v1.5.
-  @python_encrypt """
-  import sys
-  from cryptography import x509
-  from cryptography.hazmat.primitives import serialization
-  from cryptography.hazmat.primitives.ciphers import algorithms
-  from cryptography.hazmat.primitives.serialization import pkcs7
-
-  content_file, cipher, out, *certificates = sys.argv[1:]
-  builder = pkcs7.PKCS7EnvelopeBuilder().set_data(open(content_file, "rb").read())
-  for name in certificates:
-      builder = builder.add_recipient(x509.load_pem_x509_certificate(open(name, "rb").read()))
-  builder = builder.set_content_encryption_algorithm(getattr(algorithms, cipher))
-  der = builder.encrypt(serialization.Encoding.DER, [pkcs7.PKCS7Options.Binary])
-  open(out, "wb").write(der)
-  """
-
-  @python_encrypts [
-    {"AES-128", "AES128", ["rsa2048"]},
-    {"AES-256", "AES256", ["rsa2048"]},
-    {"two recipients", "AES128", ["rsa2048", "rsa3072"]}
-  ]
-
   python = Interop.find(:python)
 
   describe "python encrypts" do
     cond do
       python ->
+        # Python: a certificate or two, AES-128 or AES-256, PKCS #1 v1.5.
+        @python_encrypt """
+        import sys
+        from cryptography import x509
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.ciphers import algorithms
+        from cryptography.hazmat.primitives.serialization import pkcs7
+
+        content_file, cipher, out, *certificates = sys.argv[1:]
+        builder = pkcs7.PKCS7EnvelopeBuilder().set_data(open(content_file, "rb").read())
+        for name in certificates:
+            builder = builder.add_recipient(x509.load_pem_x509_certificate(open(name, "rb").read()))
+        builder = builder.set_content_encryption_algorithm(getattr(algorithms, cipher))
+        der = builder.encrypt(serialization.Encoding.DER, [pkcs7.PKCS7Options.Binary])
+        open(out, "wb").write(der)
+        """
+
+        @python_encrypts [
+          {"AES-128", "AES128", ["rsa2048"]},
+          {"AES-256", "AES256", ["rsa2048"]},
+          {"two recipients", "AES128", ["rsa2048", "rsa3072"]}
+        ]
+
         for {name, cipher, recipients} <- @python_encrypts do
           test name, %{tmp_dir: dir} do
             {bin, version} = unquote(Macro.escape(python))
