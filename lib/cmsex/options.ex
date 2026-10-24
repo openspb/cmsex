@@ -81,7 +81,7 @@ defmodule Cmsex.Options do
         raise(
           ArgumentError,
           ":content must be a binary, {:stream, enumerable} or {:digest, hash, binary}, " <>
-            "got: #{inspect(value, limit: 5)}"
+            "got #{kind(value)}"
         )
   end
 
@@ -125,4 +125,19 @@ defmodule Cmsex.Options do
     do: hash in Cmsex.Digest.hashes() and byte_size(digest) == Cmsex.Digest.size(hash)
 
   def content?(_value), do: false
+
+  @doc """
+  What kind of term `value` is, for the message of an `ArgumentError` about
+  an argument that may be a key or the content, and so is not shown.
+  """
+  @spec kind(term()) :: String.t()
+  def kind(value) when is_binary(value), do: "a binary"
+  def kind(value) when is_list(value), do: "a list"
+  def kind(value) when is_tuple(value), do: "a tuple of #{tuple_size(value)} elements"
+  def kind(%module{}), do: "a #{inspect(module)} struct"
+  def kind(value) when is_map(value), do: "a map"
+  def kind(value) when is_atom(value), do: inspect(value)
+  def kind(value) when is_number(value), do: "a number"
+  def kind(value) when is_function(value), do: "a function"
+  def kind(_value), do: "a pid, port or reference"
 end

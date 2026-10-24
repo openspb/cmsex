@@ -216,7 +216,7 @@ defmodule Cmsex.Sign do
   defp signers!(signers) when is_list(signers), do: Enum.map(signers, &Signer.new!/1)
 
   defp signers!(other),
-    do: raise(ArgumentError, "expected a signer or a list of signers, got: #{inspect(other)}")
+    do: raise(ArgumentError, "expected a signer or a list of signers, got #{Options.kind(other)}")
 
   ## Each signer, before anything is signed
 

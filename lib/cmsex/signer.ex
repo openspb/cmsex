@@ -135,7 +135,11 @@ defmodule Cmsex.Signer do
   end
 
   def new!(other),
-    do: raise(ArgumentError, "expected a signer as a map or keyword list, got: #{inspect(other)}")
+    do:
+      raise(
+        ArgumentError,
+        "expected a signer as a map or keyword list, got #{Cmsex.Options.kind(other)}"
+      )
 
   defp check!(%__MODULE__{} = signer) do
     key = signer.key

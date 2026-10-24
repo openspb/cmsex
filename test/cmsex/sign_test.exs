@@ -695,6 +695,15 @@ defmodule Cmsex.SignTest do
 
       message = Exception.message(catch_error(Signer.new!(%{signer | chain: pkcs8})))
       refute message =~ inspect(binary_part(pkcs8, 0, 8))
+
+      # A key given in place of a signer.
+      record = TestPKI.key(:p256)
+
+      for signers <- [record, [record], [pkcs8, ctx.certs[:p256]]] do
+        message = Exception.message(catch_error(Cmsex.sign("content", signers)))
+        refute message =~ "ECPrivateKey"
+        refute message =~ inspect(binary_part(pkcs8, 0, 8))
+      end
     end
 
     test "sign! returns the message or raises", ctx do

@@ -116,7 +116,7 @@ defmodule Cmsex.Compose do
   @spec binary!(binary()) :: :ok
   def binary!(content) do
     unless is_binary(content),
-      do: raise(ArgumentError, "the content must be a binary, got: #{inspect(content, limit: 5)}")
+      do: raise(ArgumentError, "the content must be a binary, got #{Options.kind(content)}")
 
     :ok
   end
@@ -132,7 +132,7 @@ defmodule Cmsex.Compose do
         raise(
           ArgumentError,
           "the content must be a binary, {:stream, enumerable} or {:digest, hash, binary}, " <>
-            "got: #{inspect(content, limit: 5)}"
+            "got #{Options.kind(content)}"
         )
 
     :ok
@@ -163,8 +163,8 @@ defmodule Cmsex.Compose do
     do:
       raise(
         ArgumentError,
-        "expected a Cmsex.Recipient, a DER certificate or a list of them, got: " <>
-          inspect(other, limit: 5)
+        "expected a Cmsex.Recipient, a DER certificate or a list of them, got " <>
+          Options.kind(other)
       )
 
   defp recipient!(%Recipient{} = recipient), do: recipient

@@ -979,6 +979,23 @@ defmodule Cmsex.EncryptTest do
       end
     end
 
+    test "content of the wrong kind is not shown", ctx do
+      bob = party(:rsa2048, ctx).cert
+      secret = ["the secret", " content"]
+
+      for call <- [
+            fn -> Cmsex.encrypt(secret, bob) end,
+            fn -> Cmsex.encrypt_with_key(secret, kek()) end,
+            fn -> Cmsex.mac(secret, Recipient.kek(kek(), "id")) end,
+            fn -> Cmsex.digest(secret) end,
+            fn -> Cmsex.verify("a message", content: secret) end
+          ] do
+        message = Exception.message(catch_error(call.()))
+        assert message =~ "got a list"
+        refute message =~ "secret"
+      end
+    end
+
     test "of the recipients" do
       cert = "a certificate"
 
