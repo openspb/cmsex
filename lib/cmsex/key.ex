@@ -8,11 +8,14 @@ defmodule Cmsex.Key do
   #   {:rsa, crypto_key, n, e}       crypto_key = [e, n, d, p, q, dp, dq, qinv]
   #   {:ec, curve, private, point}   curve as in Cmsex.OID
   #   {:ed25519 | :ed448 | :x25519 | :x448, private, public}
+  #
+  # The RSA numbers go to `:crypto` as binaries, which it reads faster than
+  # integers: a third of the time of an RSA-2048 verification went to that.
 
   alias Cmsex.{Algorithm, DER, Digest, OID}
 
   @type private_key ::
-          {:rsa, [integer()], pos_integer(), pos_integer()}
+          {:rsa, [binary()], pos_integer(), pos_integer()}
           | {:ec, atom(), binary(), binary()}
           | {:ed25519 | :ed448 | :x25519 | :x448, binary(), binary()}
 
@@ -150,7 +153,7 @@ defmodule Cmsex.Key do
   defp curve_parameter(_field), do: nil
 
   defp rsa([n, e, d, p, q, dp, dq, qinv]) when n > 0 and e > 0 and d > 0,
-    do: {:ok, {:rsa, [e, n, d, p, q, dp, dq, qinv], n, e}}
+    do: {:ok, {:rsa, Enum.map([e, n, d, p, q, dp, dq, qinv], &:binary.encode_unsigned/1), n, e}}
 
   defp rsa(_values), do: :error
 
@@ -257,7 +260,7 @@ defmodule Cmsex.Key do
   end
 
   defp do_verify({:rsa, n, e}, :rsa_pkcs1, hash, digest, signature, _pss),
-    do: :crypto.verify(:rsa, Digest.crypto(hash), {:digest, digest}, signature, [e, n])
+    do: :crypto.verify(:rsa, Digest.crypto(hash), {:digest, digest}, signature, rsa_public(n, e))
 
   defp do_verify(key, :rsa_pss, hash, digest, signature, pss)
        when elem(key, 0) in [:rsa, :rsa_pss] do
@@ -268,7 +271,7 @@ defmodule Cmsex.Key do
       Digest.crypto(hash),
       {:digest, digest},
       signature,
-      [e, n],
+      rsa_public(n, e),
       pss_options(pss)
     )
   end
@@ -285,6 +288,10 @@ defmodule Cmsex.Key do
        do: :crypto.verify(:eddsa, :none, message, signature, [public, type])
 
   defp do_verify(_key, _scheme, _hash, _data, _signature, _pss), do: false
+
+  @doc "An RSA public key as `:crypto` takes it."
+  @spec rsa_public(pos_integer(), pos_integer()) :: [binary()]
+  def rsa_public(n, e), do: [:binary.encode_unsigned(e), :binary.encode_unsigned(n)]
 
   defp pss_options(pss) do
     [

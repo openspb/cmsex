@@ -157,7 +157,7 @@ defmodule Cmsex.RecipientKey do
     hash = prepared.recipient.options.oaep_digest
 
     encrypted_key =
-      :crypto.public_encrypt(:rsa, cek, [e, n],
+      :crypto.public_encrypt(:rsa, cek, Key.rsa_public(n, e),
         rsa_padding: :rsa_pkcs1_oaep_padding,
         rsa_oaep_md: Digest.crypto(hash),
         rsa_mgf1_md: Digest.crypto(hash)
