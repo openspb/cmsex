@@ -182,6 +182,16 @@ defmodule Cmsex.EncryptedTest do
       end
     end
 
+    # The job of CI on an OpenSSL without the legacy provider sets
+    # CMSEX_EXPECT_NO_LEGACY, so that the tests of RC2 surely take the path
+    # of the error there.
+    if System.get_env("CMSEX_EXPECT_NO_LEGACY") in [nil, ""],
+      do: @tag(skip: "CMSEX_EXPECT_NO_LEGACY is not set")
+
+    test "RC2 is missing, as CMSEX_EXPECT_NO_LEGACY says" do
+      refute rc2_available?(), "RC2 is in :crypto: the legacy provider was loaded"
+    end
+
     test "EncryptedData decrypts with its content key" do
       for {message, size, cipher} <- @encrypted do
         assert {:ok, %Decrypted{recipient: nil} = decrypted} =

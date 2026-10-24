@@ -160,8 +160,14 @@ defmodule Cmsex.CipherTest do
 
     test "RC2: 40, 64 and 128 effective key bits (RFC 3370, 5.2)" do
       for {version, size} <- [{160, 5}, {120, 8}, {58, 16}] do
-        assert {:ok, %{name: :rc2_cbc, key_size: ^size}} =
-                 read({:seq, [{:oid, :rc2_cbc}, {:seq, [{:int, version}, {:octets, <<0::64>>}]}]})
+        result =
+          read({:seq, [{:oid, :rc2_cbc}, {:seq, [{:int, version}, {:octets, <<0::64>>}]}]})
+
+        # Without RC2 in :crypto, the parameters are read all the same, and
+        # only then refused.
+        if :rc2_cbc in :crypto.supports(:ciphers),
+          do: assert({:ok, %{name: :rc2_cbc, key_size: ^size}} = result),
+          else: assert({:error, :not_available, :rc2_cbc} = result)
       end
 
       # The others, including the 32 bits of a bare IV in RFC 2268, are not read.
