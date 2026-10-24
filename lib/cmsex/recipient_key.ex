@@ -399,16 +399,57 @@ defmodule Cmsex.RecipientKey do
   defp names?({:subject_key_identifier, ski}, cert), do: cert.subject_key_identifier == ski
   defp names?(_rid, _cert), do: false
 
+  @typedoc """
+  The size of the key to recover, in bytes: the size of a cipher key, or
+  for a MAC key `{:at_least, min, size}`, any size of at least `min`, and
+  `size` for RSA PKCS #1 v1.5, whose check needs one.
+  """
+  @type size :: pos_integer() | {:at_least, pos_integer(), pos_integer()}
+
   @doc """
-  Recovers the content-encryption key of `size` bytes from one candidate.
-  `context` has the certificates of the message, for an originator named
-  by its certificate, and `:max_iterations`.
+  The key of the first candidate that gives one, in the order of the
+  message, and its RecipientInfo; `context` as in `recover/4`.
+
+  Returns `{:error, :recipient_not_found, nil}` when no RecipientInfo is
+  for the credentials, and `:error` when none decrypts. An error that is
+  not about the secrets, such as an algorithm this library does not
+  implement, is kept, and returned instead of `:error`.
+  """
+  @spec find([RecipientInfo.t()], map(), size(), map()) ::
+          {:ok, binary(), RecipientInfo.t()} | :error | {:error, atom(), term()}
+  def find(recipient_infos, credentials, size, context) do
+    case candidates(recipient_infos, credentials) do
+      [] -> {:error, :recipient_not_found, nil}
+      candidates -> first(candidates, credentials, size, context, nil)
+    end
+  end
+
+  defp first([], _credentials, _size, _context, nil), do: :error
+  defp first([], _credentials, _size, _context, {reason, detail}), do: {:error, reason, detail}
+
+  defp first([{_, info, _} = candidate | rest], credentials, size, context, kept) do
+    case recover(candidate, credentials, size, context) do
+      {:ok, key} ->
+        {:ok, key, info}
+
+      :error ->
+        first(rest, credentials, size, context, kept)
+
+      {:error, reason, detail} ->
+        first(rest, credentials, size, context, kept || {reason, detail})
+    end
+  end
+
+  @doc """
+  Recovers the key from one candidate. `context` has the certificates of
+  the message, for an originator named by its certificate, and
+  `:max_iterations`.
 
   Returns `{:ok, key}`, `:error` when it does not decrypt, or
   `{:error, reason, detail}` for an algorithm this library does not
   implement, parameters that do not fit it, or a limit.
   """
-  @spec recover({non_neg_integer(), RecipientInfo.t(), term()}, map(), pos_integer(), map()) ::
+  @spec recover({non_neg_integer(), RecipientInfo.t(), term()}, map(), size(), map()) ::
           {:ok, binary()} | :error | {:error, atom(), term()}
   def recover({_index, info, :key_transport}, credentials, size, _context),
     do: key_transport(info, credentials.key, size)
@@ -477,18 +518,26 @@ defmodule Cmsex.RecipientKey do
 
   # RFC 3218, 2.3: the key that came out if the padding checks and the
   # size is the expected one, else a random key; both are computed every
-  # time, and the choice is made with a mask rather than a branch.
+  # time, and the choice is made with a mask rather than a branch. A MAC
+  # key is taken at the size of its hash here, since the check needs one.
   defp pkcs1_decrypt(key, encrypted_key, size) do
-    random = :crypto.strong_rand_bytes(size)
+    exact = exact(size)
+    random = :crypto.strong_rand_bytes(exact)
 
-    case raw_decrypt(key, encrypted_key, size) do
-      {:block, block} -> select(pkcs1_check(block, size), block, random, size)
-      {:plain, plain} when byte_size(plain) == size -> plain
-      _ -> random
+    case raw_decrypt(key, encrypted_key) do
+      {:block, block} -> select(pkcs1_check(block, exact), block, random, exact)
+      {:plain, plain} -> {:ok, plain} |> sized(size) |> or_random(random)
+      :error -> random
     end
   end
 
-  defp raw_decrypt({:local, {:rsa, key, n, _e}}, encrypted_key, _size) do
+  defp exact({:at_least, _min, size}), do: size
+  defp exact(size), do: size
+
+  defp or_random({:ok, key}, _random), do: key
+  defp or_random(_result, random), do: random
+
+  defp raw_decrypt({:local, {:rsa, key, n, _e}}, encrypted_key) do
     k = byte_size(:binary.encode_unsigned(n))
     encrypted_key = left_pad(encrypted_key, k)
 
@@ -498,14 +547,14 @@ defmodule Cmsex.RecipientKey do
     _ -> :error
   end
 
-  defp raw_decrypt({:external, fun}, encrypted_key, _size) do
+  defp raw_decrypt({:external, fun}, encrypted_key) do
     case external(fun, %{operation: :decrypt, ciphertext: encrypted_key, padding: :pkcs1}) do
       {:ok, plain} -> {:plain, plain}
       :error -> :error
     end
   end
 
-  defp raw_decrypt(_key, _encrypted_key, _size), do: :error
+  defp raw_decrypt(_key, _encrypted_key), do: :error
 
   defp left_pad(bytes, k) when byte_size(bytes) < k,
     do: :binary.copy(<<0>>, k - byte_size(bytes)) <> bytes
@@ -827,6 +876,7 @@ defmodule Cmsex.RecipientKey do
   ## Common
 
   defp sized({:ok, key}, size) when byte_size(key) == size, do: {:ok, key}
+  defp sized({:ok, key}, {:at_least, min, _size}) when byte_size(key) >= min, do: {:ok, key}
   defp sized({:error, _, _} = error, _size), do: error
   defp sized(_result, _size), do: :error
 

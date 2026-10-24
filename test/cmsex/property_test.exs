@@ -239,6 +239,89 @@ defmodule Cmsex.PropertyTest do
     end
   end
 
+  ## Digests, MACs and encryption
+
+  @kek :binary.copy(<<0x5A>>, 32)
+
+  property "what digest/2 writes, verify_digest/2 verifies, and not another content" do
+    check all content <- bytes(),
+              hash <- member_of([:sha224, :sha256, :sha384, :sha512]),
+              detached <- boolean(),
+              position <- integer(0..(1 <<< 20)),
+              mask <- integer(1..255) do
+      cms = Cmsex.digest!(content, digest: hash, detached: detached)
+      opts = if detached, do: [content: content], else: []
+      assert {:ok, _} = Cmsex.verify_digest(cms, opts)
+
+      if content != <<>> do
+        changed = flip(content, {0, byte_size(content)}, position, mask)
+        detached = Cmsex.digest!(content, digest: hash, detached: true)
+
+        assert {:error, %Error{reason: :digest_mismatch}} =
+                 Cmsex.verify_digest(detached, content: changed)
+      end
+    end
+  end
+
+  property "what mac/3 writes, verify_mac/2 verifies, and not another content" do
+    check all content <- bytes(),
+              mac <- member_of([:hmac_sha224, :hmac_sha256, :hmac_sha384, :hmac_sha512]),
+              content_type <- member_of([:data, List.to_tuple(@arc ++ [3])]),
+              authenticated <- attributes(1, 2),
+              unauthenticated <- attributes(2, 2),
+              position <- integer(0..(1 <<< 20)),
+              mask <- integer(1..255) do
+      cms =
+        Cmsex.mac!(content, Cmsex.Recipient.kek(@kek, "property"),
+          mac: mac,
+          content_type: content_type,
+          authenticated_attributes: authenticated,
+          unauthenticated_attributes: unauthenticated,
+          detached: true
+        )
+
+      opts = [kek: {"property", @kek}, content: content]
+
+      assert {:ok, %Cmsex.Authenticated{content_type: ^content_type}} =
+               Cmsex.verify_mac(cms, opts)
+
+      if content != <<>> do
+        changed = flip(content, {0, byte_size(content)}, position, mask)
+
+        assert {:error, %Error{reason: reason}} =
+                 Cmsex.verify_mac(cms, Keyword.put(opts, :content, changed))
+
+        assert reason in [:invalid_mac, :digest_mismatch]
+      end
+    end
+  end
+
+  property "what encrypt/3 writes, decrypt/2 decrypts" do
+    check all content <- bytes(),
+              cipher <-
+                member_of([
+                  :aes128_cbc,
+                  :aes192_cbc,
+                  :aes256_cbc,
+                  :aes128_gcm,
+                  :aes256_gcm,
+                  :aes128_ccm,
+                  :chacha20_poly1305
+                ]),
+              password? <- boolean(),
+              unprotected <- attributes(2, 2) do
+      {recipient, credentials} =
+        if password?,
+          do: {Cmsex.Recipient.password("property", iterations: 1), [password: "property"]},
+          else: {Cmsex.Recipient.kek(@kek, "property"), [kek: {"property", @kek}]}
+
+      cms =
+        Cmsex.encrypt!(content, recipient, cipher: cipher, unprotected_attributes: unprotected)
+
+      assert {:ok, %Cmsex.Decrypted{content: ^content}} = Cmsex.decrypt(cms, credentials)
+    end
+  end
+
   ## Robustness
 
   # The same as the fuzz tests, in fewer rounds.

@@ -49,8 +49,8 @@ defmodule Cmsex.Error do
       the wrong number of values; `detail` is which.
     * `:content_type_mismatch` - the content-type attribute is not the type
       of the content.
-    * `:digest_mismatch` - the message-digest attribute is not the digest
-      of the content.
+    * `:digest_mismatch` - the message-digest attribute, or the digest of
+      a DigestedData, is not the digest of the content.
     * `:invalid_signature` - the signature does not verify.
     * `:signing_certificate_mismatch` - the signing-certificate attribute
       names another certificate.
@@ -68,7 +68,7 @@ defmodule Cmsex.Error do
     * `:invalid_recipient` - a recipient cannot be used for encryption;
       `detail` says why.
 
-  Decrypting:
+  Decrypting and MACs:
 
     * `:recipient_not_found` - no recipient of the message matches the
       credentials that were given.
@@ -77,6 +77,9 @@ defmodule Cmsex.Error do
     * `:not_available` - the algorithm is known, but the `:crypto`
       application of this system (its OpenSSL) refuses it, such as RC2
       without the OpenSSL "legacy" provider; `detail` is the algorithm.
+    * `:invalid_mac` - the MAC of an AuthenticatedData does not check
+      with the key of the recipient, or the key does not unwrap. As with
+      `:decryption_failed`, nothing tells these apart.
 
   An error never carries key material, passwords or the content.
   """
@@ -110,6 +113,7 @@ defmodule Cmsex.Error do
           | :recipient_not_found
           | :decryption_failed
           | :not_available
+          | :invalid_mac
 
   @type t :: %__MODULE__{
           reason: reason(),
@@ -171,7 +175,7 @@ defmodule Cmsex.Error do
     do: "the content-type attribute does not match the content"
 
   defp describe(:digest_mismatch, _),
-    do: "the message-digest attribute does not match the content"
+    do: "the digest does not match the content"
 
   defp describe(:invalid_signature, _), do: "invalid signature"
 
@@ -194,6 +198,7 @@ defmodule Cmsex.Error do
     do: "no recipient of the message matches the credentials that were given"
 
   defp describe(:decryption_failed, _), do: "decryption failed"
+  defp describe(:invalid_mac, _), do: "invalid MAC"
 
   defp describe(:not_available, alg),
     do: "#{show(alg)} is not available in the :crypto application of this system"

@@ -969,7 +969,7 @@ defmodule Cmsex.VerifyTest do
       assert %Verified{} = Cmsex.verify!(message(ctx, :p256))
 
       assert_raise Error,
-                   "signer 0: the message-digest attribute does not match the content",
+                   "signer 0: the digest does not match the content",
                    fn ->
                      Cmsex.verify!(
                        message(ctx, :p256, content: "changed", sign: [content: "content"])

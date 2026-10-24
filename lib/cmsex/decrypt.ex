@@ -38,13 +38,16 @@ defmodule Cmsex.Decrypt do
   @doc "Decrypts a message in DER, BER or PEM; see `Cmsex.decrypt/2`."
   @spec decrypt(binary(), keyword()) :: {:ok, Decrypted.t()} | {:error, Error.t()}
   def decrypt(cms, opts) do
-    opts = options!(opts)
+    opts = options!(opts, @keys, :content_key)
+
+    unless opts[:content] == nil or is_binary(opts[:content]),
+      do: raise(ArgumentError, ":content must be the encrypted content, a binary")
 
     with {:ok, der} <- PEM.input(cms),
          {:ok, credentials} <- credentials(opts),
          {:ok, message} <-
            Message.parse(der, opts, [:enveloped_data, :auth_enveloped_data, :encrypted_data]),
-         {:ok, ciphertext} <- ciphertext(message.encrypted_content, opts[:content]),
+         {:ok, ciphertext} <- Message.content(message.encrypted_content, opts[:content]),
          {:ok, cipher} <- cipher(message),
          {:ok, cek, recipient} <- content_key(message, credentials, cipher, opts) do
       with {:ok, content} <- decrypt_content(message, cipher, cek, ciphertext),
@@ -65,17 +68,24 @@ defmodule Cmsex.Decrypt do
 
   ## Options
 
-  defp options!(opts) do
-    opts = Options.take!(opts, @keys)
+  @doc """
+  The options of a function that recovers a key from the recipients, as
+  `Cmsex.Options.take!/2` takes them, with the credentials checked: a key
+  with its certificate, a KEK, a password, or `direct`, the key itself
+  under that name. The values are secrets, and are never shown.
+  """
+  @spec options!(keyword(), [atom()], :content_key | :mac_key) :: map()
+  def options!(opts, keys, direct) do
+    opts = Options.take!(opts, keys)
 
     unless Map.has_key?(opts, :key) == Map.has_key?(opts, :certificate),
       do: raise(ArgumentError, ":key and :certificate go together")
 
-    unless Enum.any?([:key, :kek, :password, :content_key], &Map.has_key?(opts, &1)),
+    unless Enum.any?([:key, :kek, :password, direct], &Map.has_key?(opts, &1)),
       do:
         raise(
           ArgumentError,
-          "expected one of :key and :certificate, :kek, :password or :content_key"
+          "expected one of :key and :certificate, :kek, :password or #{inspect(direct)}"
         )
 
     Enum.each(opts, fn {key, value} -> check!(key, value) end)
@@ -102,13 +112,8 @@ defmodule Cmsex.Decrypt do
   defp check!(:password, value),
     do: ensure!(is_binary(value) and value != <<>>, ":password must be a non-empty binary")
 
-  defp check!(:content_key, value),
-    do: ensure!(is_binary(value), ":content_key must be a binary")
-
-  defp check!(:content, nil), do: :ok
-
-  defp check!(:content, value),
-    do: ensure!(is_binary(value), ":content must be the encrypted content, a binary")
+  defp check!(key, value) when key in [:content_key, :mac_key],
+    do: ensure!(is_binary(value) and value != <<>>, "#{inspect(key)} must be a non-empty binary")
 
   defp check!(_key, _value), do: :ok
 
@@ -116,7 +121,9 @@ defmodule Cmsex.Decrypt do
   defp ensure!(true, _message), do: :ok
   defp ensure!(false, message), do: raise(ArgumentError, message)
 
-  defp credentials(opts) do
+  @doc "The credentials of `opts`, read; see `Cmsex.RecipientKey.credentials/1`."
+  @spec credentials(map()) :: {:ok, map()} | {:error, Error.t()}
+  def credentials(opts) do
     case RecipientKey.credentials(opts) do
       {:ok, credentials} -> {:ok, credentials}
       {:error, reason, detail} -> {:error, Error.new(reason, detail)}
@@ -124,11 +131,6 @@ defmodule Cmsex.Decrypt do
   end
 
   ## The message
-
-  defp ciphertext(nil, nil), do: {:error, Error.new(:content_required)}
-  defp ciphertext(nil, content), do: {:ok, content}
-  defp ciphertext(content, nil), do: {:ok, content}
-  defp ciphertext(_content, _given), do: {:error, Error.new(:unexpected_content)}
 
   # EnvelopedData and EncryptedData have no place for a tag, so they take
   # CBC; AuthEnvelopedData takes an authenticated cipher (RFC 5083, 2.1).
@@ -157,34 +159,15 @@ defmodule Cmsex.Decrypt do
   defp content_key(%EncryptedData{}, _credentials, _cipher, _opts),
     do: {:error, Error.new(:recipient_not_found)}
 
+  # The first recipient for the credentials that gives a key of the size
+  # of the cipher.
   defp content_key(%EnvelopedData{} = message, credentials, cipher, opts) do
     context = %{certificates: message.certificates, max_iterations: opts.max_iterations}
 
-    case RecipientKey.candidates(message.recipient_infos, credentials) do
-      [] -> {:error, Error.new(:recipient_not_found)}
-      candidates -> try_candidates(candidates, credentials, cipher.key_size, context, nil)
-    end
-  end
-
-  # The first candidate that gives a key of the size of the cipher. An
-  # error that is not about the secrets, such as an algorithm the library
-  # does not implement, is kept to be told when none does.
-  defp try_candidates([], _credentials, _size, _context, nil),
-    do: {:error, Error.new(:decryption_failed)}
-
-  defp try_candidates([], _credentials, _size, _context, {reason, detail}),
-    do: {:error, Error.new(reason, detail)}
-
-  defp try_candidates([{_, info, _} = candidate | rest], credentials, size, context, kept) do
-    case RecipientKey.recover(candidate, credentials, size, context) do
-      {:ok, cek} ->
-        {:ok, cek, info}
-
-      :error ->
-        try_candidates(rest, credentials, size, context, kept)
-
-      {:error, reason, detail} ->
-        try_candidates(rest, credentials, size, context, kept || {reason, detail})
+    case RecipientKey.find(message.recipient_infos, credentials, cipher.key_size, context) do
+      {:ok, cek, info} -> {:ok, cek, info}
+      :error -> {:error, Error.new(:decryption_failed)}
+      {:error, reason, detail} -> {:error, Error.new(reason, detail)}
     end
   end
 

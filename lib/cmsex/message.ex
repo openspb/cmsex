@@ -325,6 +325,16 @@ defmodule Cmsex.Message do
   defp encrypted_content(nil), do: {:ok, nil}
   defp encrypted_content(element), do: DER.string(element, 0x80)
 
+  @doc """
+  The content to work on: the one in the message, or the one the caller
+  gave for a detached message, but not both and not neither.
+  """
+  @spec content(binary() | nil, term()) :: {:ok, term()} | {:error, Error.t()}
+  def content(nil, nil), do: {:error, Error.new(:content_required)}
+  def content(nil, given), do: {:ok, given}
+  def content(in_message, nil), do: {:ok, in_message}
+  def content(_in_message, _given), do: {:error, Error.new(:unexpected_content)}
+
   @doc "A malformed error, with where."
   @spec malformed(atom()) :: {:error, Error.t()}
   def malformed(where), do: {:error, Error.new(:malformed, where)}

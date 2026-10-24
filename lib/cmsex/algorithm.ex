@@ -19,6 +19,20 @@ defmodule Cmsex.Algorithm do
   @type scheme :: :rsa_pkcs1 | :rsa_pss | :ecdsa | :ed25519 | :ed448
 
   @sha2 [:sha224, :sha256, :sha384, :sha512]
+  @hmacs %{
+    hmac_sha1: :sha1,
+    hmac_with_sha1: :sha1,
+    hmac_sha224: :sha224,
+    hmac_sha256: :sha256,
+    hmac_sha384: :sha384,
+    hmac_sha512: :sha512
+  }
+  @hmac_ids %{
+    sha224: :hmac_sha224,
+    sha256: :hmac_sha256,
+    sha384: :hmac_sha384,
+    sha512: :hmac_sha512
+  }
   @ecdsa %{
     sha224: :ecdsa_with_sha224,
     sha256: :ecdsa_with_sha256,
@@ -53,6 +67,19 @@ defmodule Cmsex.Algorithm do
       {:shake256, nil} -> {:ok, :shake256}
       {name, params} when name in [:md5, :sha1 | @sha2] -> null_or_absent(name, params, oid)
       _ -> {:error, :unsupported_algorithm, oid}
+    end
+  end
+
+  @doc """
+  The hash of an HMAC AlgorithmIdentifier: hMAC-SHA1 (RFC 3370, 6.1),
+  hmacWithSHA1, and the HMAC of SHA-2 (RFC 4231, 3.1); the parameters
+  absent or NULL, as both RFCs ask readers to take.
+  """
+  @spec mac(t()) :: {:ok, Digest.hash()} | {:error, Cmsex.Error.reason(), term()}
+  def mac({oid, params}) do
+    case Map.fetch(@hmacs, OID.name(oid)) do
+      {:ok, hash} -> null_or_absent(hash, params, oid)
+      :error -> {:error, :unsupported_algorithm, oid}
     end
   end
 
@@ -251,14 +278,19 @@ defmodule Cmsex.Algorithm do
     end
   end
 
-  defp allowed_digest(nil, _opts), do: :ok
-  defp allowed_digest(:md5, _opts), do: {:error, :weak_algorithm, :md5}
+  @doc """
+  Whether a digest may be used: never MD5, SHA-1 only with `allow_sha1:
+  true`.
+  """
+  @spec allowed_digest(Digest.hash() | nil, keyword()) :: :ok | {:error, :weak_algorithm, atom()}
+  def allowed_digest(nil, _opts), do: :ok
+  def allowed_digest(:md5, _opts), do: {:error, :weak_algorithm, :md5}
 
-  defp allowed_digest(:sha1, opts) do
+  def allowed_digest(:sha1, opts) do
     if Keyword.get(opts, :allow_sha1, false), do: :ok, else: {:error, :weak_algorithm, :sha1}
   end
 
-  defp allowed_digest(_hash, _opts), do: :ok
+  def allowed_digest(_hash, _opts), do: :ok
 
   # The hash the signature itself uses. RSA with rsaEncryption takes the
   # digestAlgorithm; a combined OID must name the same (RFC 5754; RFC 8933
@@ -343,6 +375,10 @@ defmodule Cmsex.Algorithm do
   @spec digest_identifier(Digest.hash()) :: DER.term_()
   def digest_identifier(:shake256_len), do: {:seq, [{:oid, :shake256_len}, {:int, 512}]}
   def digest_identifier(hash), do: {:seq, [{:oid, hash}]}
+
+  @doc "An HMAC AlgorithmIdentifier of SHA-2, with NULL (RFC 4231, 3.1)."
+  @spec mac_identifier(:sha224 | :sha256 | :sha384 | :sha512) :: DER.term_()
+  def mac_identifier(hash), do: {:seq, [{:oid, Map.fetch!(@hmac_ids, hash)}, :null]}
 
   @doc """
   A signature AlgorithmIdentifier: rsaEncryption with NULL for RSA (what

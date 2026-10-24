@@ -5,10 +5,13 @@ defmodule Cmsex do
 
   alias Cmsex.{
     Attribute,
+    Authenticate,
+    Authenticated,
     AuthenticatedData,
     Decrypt,
     Decrypted,
     DigestedData,
+    Digesting,
     EncryptedData,
     Envelope,
     EnvelopedData,
@@ -487,6 +490,184 @@ defmodule Cmsex do
   def decrypt!(cms, opts \\ []) do
     case decrypt(cms, opts) do
       {:ok, decrypted} -> decrypted
+      {:error, error} -> raise error
+    end
+  end
+
+  ## Digests and MACs
+
+  @doc """
+  Returns a DigestedData message in DER (RFC 5652, 7): `content` and its
+  digest.
+
+      {:ok, cms} = Cmsex.digest(content)
+      {:ok, %Cmsex.DigestedData{content: ^content}} = Cmsex.verify_digest(cms)
+
+  A digest shows that the content was not changed by accident, and
+  nothing more: whoever changes the content can write a new digest. To
+  show who wrote it, sign it, or use `mac/3`.
+
+  The content is a binary, `{:stream, enumerable}` read once, or
+  `{:digest, hash, digest}` already computed; a stream or a digest makes
+  a detached message.
+
+  Options:
+
+    * `:digest` - `:sha256` (the default), `:sha224`, `:sha384` or
+      `:sha512`. A ready digest gives its own hash.
+    * `:content_type` - the type of the content (`:data`), a name of
+      `Cmsex.OID` or an OID tuple.
+    * `:detached` - leave the content out of the message (`false` for a
+      binary).
+
+  The version is 0 for `:data` and 2 for another type (RFC 5652, 7).
+  """
+  @spec digest(binary() | {:stream, Enumerable.t()} | {:digest, atom(), binary()}, keyword()) ::
+          {:ok, binary()}
+  def digest(content, opts \\ []), do: Digesting.digest(content, opts)
+
+  @doc "Like `digest/2`, but returns the message alone."
+  @spec digest!(binary() | {:stream, Enumerable.t()} | {:digest, atom(), binary()}, keyword()) ::
+          binary()
+  def digest!(content, opts \\ []) do
+    {:ok, cms} = digest(content, opts)
+    cms
+  end
+
+  @doc """
+  Checks the digest of a DigestedData message, in DER, BER or PEM, and
+  returns the message as `decode/2` reads it, whose `:content` is the
+  content, or `nil` for a detached message.
+
+  Options:
+
+    * `:content` - the content of a detached message: a binary,
+      `{:stream, enumerable}` or `{:digest, hash, digest}`.
+    * `:allow_sha1` - take a SHA-1 digest (`false`). MD5 is never taken.
+    * the limits of `decode/2`.
+
+  Errors: `:digest_mismatch`, `:weak_algorithm`, `:unsupported_algorithm`,
+  `:content_required` and `:unexpected_content`, and those of reading.
+  A message of another type is `:unsupported_content_type`.
+  """
+  @spec verify_digest(binary(), keyword()) :: {:ok, DigestedData.t()} | {:error, Error.t()}
+  def verify_digest(cms, opts \\ []), do: Digesting.verify_digest(cms, opts)
+
+  @doc "Like `verify_digest/2`, but raises `Cmsex.Error`."
+  @spec verify_digest!(binary(), keyword()) :: DigestedData.t()
+  def verify_digest!(cms, opts \\ []) do
+    case verify_digest(cms, opts) do
+      {:ok, digested} -> digested
+      {:error, error} -> raise error
+    end
+  end
+
+  @doc """
+  Returns an AuthenticatedData message in DER (RFC 5652, 9): `content`, in
+  the clear, with an HMAC over it, and the MAC key, random and new for
+  each message, wrapped for each of `recipients` as in `encrypt/3`.
+
+      {:ok, cms} = Cmsex.mac(content, Cmsex.Recipient.kek(shared_key, "key 1"))
+      {:ok, %Cmsex.Authenticated{content: ^content}} =
+        Cmsex.verify_mac(cms, kek: {"key 1", shared_key})
+
+  A MAC tells a recipient that the content comes from someone who had the
+  MAC key, and that nobody changed it since. How much that says depends
+  on the recipients: with a KEK or a password, the sender is someone who
+  holds it; with a certificate, RSA or ephemeral ECDH, anyone who has the
+  certificate can write such a message, and it shows nothing about who
+  did (RFC 5652, 14). To show who wrote the content, sign it.
+
+  The content is a binary, `{:stream, enumerable}` read once, or
+  `{:digest, hash, digest}` already computed; a stream or a digest makes
+  a detached message.
+
+  Options:
+
+    * `:mac` - `:hmac_sha256` (the default), `:hmac_sha384`,
+      `:hmac_sha512` or `:hmac_sha224` (RFC 4231). The key is as long as
+      the hash, and 32 bytes for SHA-224.
+    * `:content_type` - the type of the content (`:data`), a name of
+      `Cmsex.OID` or an OID tuple.
+    * `:detached` - leave the content out of the message (`false` for a
+      binary).
+    * `:authenticated_attributes` - a list of `Cmsex.Attribute` that the
+      MAC covers (`[]`). With them, for a content type other than
+      `:data`, and for a ready digest, the MAC is over the attributes,
+      among which the library writes the content-type and the
+      message-digest attributes (RFC 5652, 9.2).
+    * `:digest` - the hash of the message-digest attribute: that of the
+      HMAC unless given, `:sha224`, `:sha256`, `:sha384` or `:sha512`; for
+      a ready digest, its hash.
+    * `:unauthenticated_attributes` - a list of `Cmsex.Attribute` that
+      nothing covers (`[]`).
+    * `:certificates` and `:crls` - certificates and revocation lists in
+      DER for the OriginatorInfo (`[]`).
+    * `:min_rsa_bits` - the shortest RSA key accepted (2048).
+
+  Recipients are checked as in `encrypt/3`, and an error that belongs to
+  one carries its position in `:recipient`.
+  """
+  @spec mac(
+          binary() | {:stream, Enumerable.t()} | {:digest, atom(), binary()},
+          Recipient.t() | binary() | [Recipient.t() | binary()],
+          keyword()
+        ) :: {:ok, binary()} | {:error, Error.t()}
+  def mac(content, recipients, opts \\ []), do: Authenticate.mac(content, recipients, opts)
+
+  @doc "Like `mac/3`, but raises `Cmsex.Error`."
+  @spec mac!(
+          binary() | {:stream, Enumerable.t()} | {:digest, atom(), binary()},
+          Recipient.t() | binary() | [Recipient.t() | binary()],
+          keyword()
+        ) :: binary()
+  def mac!(content, recipients, opts \\ []) do
+    case mac(content, recipients, opts) do
+      {:ok, cms} -> cms
+      {:error, error} -> raise error
+    end
+  end
+
+  @doc """
+  Checks the MAC of an AuthenticatedData message, in DER, BER or PEM.
+
+  The credentials are those of `decrypt/2`, with `:mac_key`, the MAC key
+  itself, in place of `:content_key`. The recipients are tried as in
+  `decrypt/2`; a key shorter than 16 bytes is not taken, since whoever
+  sees the MAC could find it.
+
+  With authenticated attributes, the MAC is over them, and once it has
+  checked, so are the content-type attribute, against the content, and
+  the message-digest attribute, against the digest of the content.
+
+  Errors:
+
+    * `:invalid_mac` - the MAC does not check, or the key of the
+      recipient does not unwrap; nothing tells these apart.
+    * `:digest_mismatch`, `:content_type_mismatch`, `:missing_attribute`
+      and `:invalid_attribute` - about the authenticated attributes, once
+      the MAC has checked. Content other than `:data` needs them.
+    * `:weak_algorithm` - a digest of SHA-1 without `allow_sha1: true`,
+      or MD5. HMAC-SHA1, the MAC of RFC 3370, is taken.
+    * those of `decrypt/2` for the credentials and the recipients, and
+      `:content_required` and `:unexpected_content`.
+
+  Other options:
+
+    * `:content` - the content of a detached message: a binary,
+      `{:stream, enumerable}`, or `{:digest, hash, digest}` when the
+      message has authenticated attributes with that hash.
+    * `:allow_sha1` (`false`), `:max_iterations` (2,000,000), and the
+      limits of `decode/2`.
+  """
+  @spec verify_mac(binary(), keyword()) :: {:ok, Authenticated.t()} | {:error, Error.t()}
+  def verify_mac(cms, opts \\ []), do: Authenticate.verify_mac(cms, opts)
+
+  @doc "Like `verify_mac/2`, but raises `Cmsex.Error`."
+  @spec verify_mac!(binary(), keyword()) :: Authenticated.t()
+  def verify_mac!(cms, opts \\ []) do
+    case verify_mac(cms, opts) do
+      {:ok, authenticated} -> authenticated
       {:error, error} -> raise error
     end
   end

@@ -18,6 +18,7 @@ defmodule Cmsex.Verify do
     Digest,
     Error,
     Key,
+    Message,
     SignedData,
     SignerInfo,
     Trust,
@@ -135,7 +136,7 @@ defmodule Cmsex.Verify do
   defp prepare(der, opts) do
     with {:ok, signed_data} <- SignedData.parse(der, opts),
          :ok <- signers?(signed_data),
-         {:ok, content} <- content(signed_data, opts.content),
+         {:ok, content} <- Message.content(signed_data.content, opts.content),
          {:ok, certificates} <- certificates(signed_data, opts.certificates),
          {:ok, roots} <- roots(opts.trust) do
       {:ok, signed_data,
@@ -152,11 +153,6 @@ defmodule Cmsex.Verify do
 
   defp signers?(%SignedData{signer_infos: []}), do: {:error, Error.new(:no_signers)}
   defp signers?(_signed_data), do: :ok
-
-  defp content(%SignedData{content: nil}, nil), do: {:error, Error.new(:content_required)}
-  defp content(%SignedData{content: nil}, given), do: {:ok, given}
-  defp content(%SignedData{content: content}, nil), do: {:ok, content}
-  defp content(_signed_data, _given), do: {:error, Error.new(:unexpected_content)}
 
   defp hashes(signer_infos) do
     for signer_info <- signer_infos,
