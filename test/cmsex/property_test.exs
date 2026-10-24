@@ -207,7 +207,7 @@ defmodule Cmsex.PropertyTest do
 
   defp flip(der, {offset, size}, position, mask) do
     at = offset + rem(position, size)
-    <<head::binary-size(at), byte, tail::binary>> = der
+    <<head::binary-size(^at), byte, tail::binary>> = der
     <<head::binary, bxor(byte, mask), tail::binary>>
   end
 

@@ -113,7 +113,7 @@ defmodule Cmsex.KeyWrap do
     length_ok = mli > 8 * (n - 1) and mli <= 8 * n
     size = if length_ok, do: mli, else: byte_size(padded)
     pad = byte_size(padded) - size
-    <<key::binary-size(size), padding::binary-size(pad)>> = padded
+    <<key::binary-size(^size), padding::binary-size(^pad)>> = padded
 
     checks = [
       :crypto.hash_equals(prefix, @aiv_prefix),

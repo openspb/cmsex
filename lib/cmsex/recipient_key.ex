@@ -568,7 +568,7 @@ defmodule Cmsex.RecipientKey do
     ps_size = byte_size(block) - 3 - size
 
     if ps_size >= 8 do
-      <<first, second, ps::binary-size(ps_size), separator, _m::binary-size(size)>> = block
+      <<first, second, ps::binary-size(^ps_size), separator, _m::binary-size(^size)>> = block
       zeros = for <<b <- ps>>, reduce: 0, do: (acc -> acc ||| ((b - 1) >>> 8 &&& 1))
       bad = first ||| bxor(second, 2) ||| separator ||| zeros
       (bad - 1) >>> 8 &&& 1

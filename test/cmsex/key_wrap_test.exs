@@ -47,7 +47,7 @@ defmodule Cmsex.KeyWrapTest do
       wrapped = KeyWrap.wrap(kek, hex(@key128))
 
       for at <- 0..(byte_size(wrapped) - 1) do
-        <<head::binary-size(at), byte, tail::binary>> = wrapped
+        <<head::binary-size(^at), byte, tail::binary>> = wrapped
         assert KeyWrap.unwrap(kek, <<head::binary, bxor(byte, 1), tail::binary>>) == :error
       end
 
@@ -105,7 +105,7 @@ defmodule Cmsex.KeyWrapTest do
         wrapped = KeyWrap.wrap_with_padding(kek, hex(key))
 
         for at <- 0..(byte_size(wrapped) - 1) do
-          <<head::binary-size(at), byte, tail::binary>> = wrapped
+          <<head::binary-size(^at), byte, tail::binary>> = wrapped
           changed = <<head::binary, bxor(byte, 0x80), tail::binary>>
           assert KeyWrap.unwrap_with_padding(kek, changed) == :error
         end

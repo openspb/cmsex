@@ -199,7 +199,7 @@ defmodule Cmsex.Key do
   def matches?({:ec, curve, _private, <<4, rest::binary>>}, {:ec, curve, <<prefix, x::binary>>})
       when prefix in [2, 3] do
     size = div(byte_size(rest), 2)
-    <<own_x::binary-size(size), y::binary-size(size)>> = rest
+    <<own_x::binary-size(^size), y::binary-size(^size)>> = rest
     parity = :binary.last(y) |> rem(2)
     own_x == x and prefix == 2 + parity
   end

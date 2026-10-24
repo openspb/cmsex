@@ -44,7 +44,7 @@ defmodule Cmsex.DigestMacTest do
 
   defp flip_in(cms, part) do
     {offset, _} = :binary.match(cms, part)
-    <<before::binary-size(offset), byte, rest::binary>> = cms
+    <<before::binary-size(^offset), byte, rest::binary>> = cms
     <<before::binary, Bitwise.bxor(byte, 1), rest::binary>>
   end
 

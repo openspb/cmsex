@@ -310,7 +310,7 @@ defmodule Cmsex.UpdateTest do
 
       # An error deep down says where.
       {offset, size} = :binary.match(der, deeper.signer_info.signature)
-      <<head::binary-size(offset + size - 1), last, tail::binary>> = der
+      <<head::binary-size(^offset + ^size - 1), last, tail::binary>> = der
       tampered = <<head::binary, Bitwise.bxor(last, 1), tail::binary>>
 
       assert {:error, %Error{reason: :invalid_signature, signer: [0, 1, 0, 0]}} =
@@ -339,7 +339,7 @@ defmodule Cmsex.UpdateTest do
       [%{unsigned_attributes: [%{values: [value]}]}] = signer_infos(countersigned)
       {offset, _} = :binary.match(countersigned, value)
       size = byte_size(value)
-      <<head::binary-size(offset + size - 1), last, tail::binary>> = countersigned
+      <<head::binary-size(^offset + ^size - 1), last, tail::binary>> = countersigned
       tampered = <<head::binary, Bitwise.bxor(last, 1), tail::binary>>
 
       assert {:ok, _} = Cmsex.verify(tampered, trust: [ctx.root])
@@ -389,7 +389,7 @@ defmodule Cmsex.UpdateTest do
       # The main signature broken: the countersignature is still good.
       [%{signature: signature}] = signer_infos(der)
       {offset, _} = :binary.match(der, signature)
-      <<head::binary-size(offset), byte, tail::binary>> = der
+      <<head::binary-size(^offset), byte, tail::binary>> = der
       broken = <<head::binary, Bitwise.bxor(byte, 1), tail::binary>>
 
       assert {:error, %Error{reason: :invalid_signature, signer: 0}} = Cmsex.verify(broken)

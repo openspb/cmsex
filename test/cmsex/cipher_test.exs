@@ -15,7 +15,7 @@ defmodule Cmsex.CipherTest do
   end
 
   defp flip(bin, at) do
-    <<head::binary-size(at), byte, tail::binary>> = bin
+    <<head::binary-size(^at), byte, tail::binary>> = bin
     <<head::binary, bxor(byte, 1), tail::binary>>
   end
 

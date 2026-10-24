@@ -55,7 +55,7 @@ defmodule Cmsex.LegacyWrap do
       when byte_size(wrapped) >= 24 and rem(byte_size(wrapped), 8) == 0 do
     lcekpadicv = undo_double_cbc(:rc2_cbc, kek, wrapped)
     size = byte_size(lcekpadicv) - 8
-    <<lcekpad::binary-size(size), icv::binary-size(8)>> = lcekpadicv
+    <<lcekpad::binary-size(^size), icv::binary-size(8)>> = lcekpadicv
     <<length, rest::binary>> = lcekpad
     fits = length >= 1 and length <= byte_size(rest) and byte_size(rest) - length <= 7
 

@@ -92,7 +92,7 @@ defmodule Cmsex.NegativeEncryptionTest do
       # The position in the content, from its end when negative.
       at = if at < 0, do: byte_size(content) + at, else: at
       offset = byte_size(raw) - byte_size(content) + at
-      <<head::binary-size(offset), byte, tail::binary>> = raw
+      <<head::binary-size(^offset), byte, tail::binary>> = raw
       <<head::binary, bxor(byte, 1), tail::binary>>
     end)
   end

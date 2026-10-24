@@ -60,7 +60,7 @@ defmodule Cmsex.TestJar do
   # A line has at most 72 bytes; a longer one goes on in lines that start
   # with a space.
   defp header({name, value}) do
-    <<first::binary-size(min(72, byte_size(name) + 2 + byte_size(value))), rest::binary>> =
+    <<first::binary-size(min(72, byte_size(^name) + 2 + byte_size(^value))), rest::binary>> =
       "#{name}: #{value}"
 
     [first, "\r\n" | continuation(rest)]

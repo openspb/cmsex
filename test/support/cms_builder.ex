@@ -201,7 +201,7 @@ defmodule Cmsex.TestCMS do
   @doc "Flips the last bit of a binary."
   def flip(bin) do
     size = byte_size(bin) - 1
-    <<head::binary-size(size), last>> = bin
+    <<head::binary-size(^size), last>> = bin
     <<head::binary, Bitwise.bxor(last, 1)>>
   end
 

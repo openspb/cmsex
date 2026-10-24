@@ -184,7 +184,7 @@ defmodule Cmsex.DER do
 
   defp read_length(<<n, rest::binary>>) when n in 0x81..0x84 and byte_size(rest) >= n - 0x80 do
     size = n - 0x80
-    <<len::unsigned-size(size)-unit(8), rest::binary>> = rest
+    <<len::unsigned-size(^size)-unit(8), rest::binary>> = rest
     {:ok, {:definite, len}, rest}
   end
 
@@ -230,7 +230,7 @@ defmodule Cmsex.DER do
   @spec integer(element()) :: {:ok, integer()} | :error
   def integer({0x02, <<_, _::binary>> = bytes, _raw}) do
     size = bit_size(bytes)
-    <<n::signed-size(size)>> = bytes
+    <<n::signed-size(^size)>> = bytes
     {:ok, n}
   end
 
@@ -254,7 +254,7 @@ defmodule Cmsex.DER do
   def named_bits({0x03, <<unused, bytes::binary>>, _raw})
       when unused < 8 and (bytes != <<>> or unused == 0) do
     used = bit_size(bytes) - unused
-    <<bits::bitstring-size(used), _::bitstring>> = bytes
+    <<bits::bitstring-size(^used), _::bitstring>> = bytes
     {:ok, for({1, i} <- Enum.with_index(for(<<bit::1 <- bits>>, do: bit)), do: i)}
   end
 

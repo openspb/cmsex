@@ -39,7 +39,7 @@ defmodule Cmsex.NegativeTest do
   defp reason({:ok, _}), do: :ok
 
   defp flip_at(bin, offset) do
-    <<head::binary-size(offset), byte, rest::binary>> = bin
+    <<head::binary-size(^offset), byte, rest::binary>> = bin
     <<head::binary, bxor(byte, 1), rest::binary>>
   end
 
@@ -127,7 +127,7 @@ defmodule Cmsex.NegativeTest do
     assert reason(Cmsex.verify(flip_at(der, digest))) == :digest_mismatch
 
     # In a length, which breaks the structure.
-    <<_::binary-size(digest - 1), 0x20, _::binary>> = der
+    <<_::binary-size(^digest - 1), 0x20, _::binary>> = der
     assert reason(Cmsex.verify(flip_at(der, digest - 1))) == :malformed
   end
 

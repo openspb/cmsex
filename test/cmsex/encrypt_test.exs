@@ -102,7 +102,7 @@ defmodule Cmsex.EncryptTest do
 
   defp flip_in(cms, part) do
     {offset, _} = :binary.match(cms, part)
-    <<before::binary-size(offset), byte, rest::binary>> = cms
+    <<before::binary-size(^offset), byte, rest::binary>> = cms
     <<before::binary, Bitwise.bxor(byte, 1), rest::binary>>
   end
 
@@ -671,8 +671,11 @@ defmodule Cmsex.EncryptTest do
       cms = Cmsex.encrypt_with_key!(@content, kek(32))
       # A wrong CBC key gives a wrong padding nearly always, and garbage
       # otherwise: CBC has no integrity check.
-      result = Cmsex.decrypt(cms, content_key: :binary.copy(<<9>>, 32))
-      assert reason(result) == :decryption_failed or content(result) != @content
+      case Cmsex.decrypt(cms, content_key: :binary.copy(<<9>>, 32)) do
+        {:error, error} -> assert error.reason == :decryption_failed
+        {:ok, decrypted} -> assert decrypted.content != @content
+      end
+
       assert reason(Cmsex.decrypt(cms, content_key: kek(16))) == :decryption_failed
     end
 
