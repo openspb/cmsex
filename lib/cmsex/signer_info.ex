@@ -41,12 +41,20 @@ defmodule Cmsex.SignerInfo do
   @type sid ::
           {:issuer_and_serial, binary(), integer()} | {:subject_key_identifier, binary()}
 
+  @typedoc "The parameters of RSASSA-PSS (RFC 4055, 3.1), with the defaults filled in."
+  @type pss_parameters :: %{
+          hash: atom(),
+          mgf_hash: atom(),
+          salt_length: non_neg_integer(),
+          trailer_field: pos_integer()
+        }
+
   @type t :: %__MODULE__{
           version: integer(),
           sid: sid(),
           digest_algorithm: atom() | tuple(),
           signature_algorithm: atom() | tuple(),
-          signature_parameters: Algorithm.pss() | nil,
+          signature_parameters: pss_parameters() | nil,
           signed_attributes: [Attribute.t()] | nil,
           unsigned_attributes: [Attribute.t()],
           signature: binary(),

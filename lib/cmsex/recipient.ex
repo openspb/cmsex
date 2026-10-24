@@ -1,9 +1,9 @@
 defmodule Cmsex.Recipient do
   @moduledoc """
-  A recipient for `Cmsex.encrypt/3`: who can decrypt the message, and how
-  the content-encryption key reaches them (RFC 5652, 6.2). Build it with
-  one of the functions here; `Cmsex.encrypt/3` also takes a certificate in
-  DER as a recipient of `certificate/2` with the defaults.
+  A recipient for `Cmsex.encrypt/3` and `Cmsex.mac/3`: who can decrypt the
+  message, or check its MAC, and how the key reaches them (RFC 5652, 6.2).
+  Build it with one of the functions here; both functions also take a
+  certificate in DER as a recipient of `certificate/2` with the defaults.
 
     * `certificate/2` - the holder of the private key of a certificate:
       RSA-OAEP key transport for an RSA key (RFC 3560), ephemeral-static

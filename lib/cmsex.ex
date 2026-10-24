@@ -1,6 +1,73 @@
 defmodule Cmsex do
   @moduledoc """
-  Cryptographic Message Syntax (CMS, RFC 5652) in pure Elixir.
+  Cryptographic Message Syntax (CMS, RFC 5652) in pure Elixir: the signed,
+  encrypted and other messages of S/MIME, of `.p7s`, `.p7m` and `.p7b`
+  files, and of the many systems built on them.
+
+  ## Messages
+
+  | Type | Written by | Read by |
+  |---|---|---|
+  | SignedData | `sign/3`, `certs_only/2`; changed by `add_signer/3`, `countersign/4` and `add_unsigned_attribute/4` | `verify/2`, `verify_each/2`, `verify_countersignature/3`, `certificates/2` |
+  | EnvelopedData, AuthEnvelopedData | `encrypt/3` | `decrypt/2` |
+  | EncryptedData | `encrypt_with_key/3` | `decrypt/2` |
+  | DigestedData | `digest/2` | `verify_digest/2` |
+  | AuthenticatedData | `mac/3` | `verify_mac/2` |
+
+  `decode/2` reads any of them into its struct, without verifying or
+  decrypting it.
+
+  A signer is a `Cmsex.Signer`, a certificate with its key, and a recipient
+  a `Cmsex.Recipient`: a certificate, a shared key or a password. The
+  README has examples of each, with the keys and certificates of RFC 9216.
+
+  ## Input and output
+
+  The functions that read take a message in DER, BER or PEM, and the
+  functions that write return DER; `Cmsex.PEM.encode/2` turns it into PEM.
+  Content is a binary, and for signing, verifying, digests and MACs it may
+  also be `{:stream, enumerable}`, read once, for content that does not
+  fit in memory.
+
+  Reading is bounded by limits on what a message may hold, listed in
+  `decode/2`, which every function that reads takes.
+
+  ## Errors
+
+  Every function returns `{:ok, result}`, or `{:error, %Cmsex.Error{}}` for
+  a message it cannot read or that does not check; the functions ending in
+  `!` return the result alone and raise the error. An argument of the
+  wrong kind, such as an unknown option, raises `ArgumentError`: it is a
+  mistake of the calling code, not of the message.
+
+  ## Examples
+
+  A digest:
+
+      iex> {:ok, cms} = Cmsex.digest("hello")
+      iex> {:ok, message} = Cmsex.verify_digest(cms)
+      iex> message.content
+      "hello"
+
+  Encryption with a key the parties share, here with AES-GCM:
+
+      iex> key = :crypto.strong_rand_bytes(32)
+      iex> recipient = Cmsex.Recipient.kek(key, "key 1")
+      iex> {:ok, cms} = Cmsex.encrypt("secret", recipient, cipher: :aes256_gcm)
+      iex> {:ok, decrypted} = Cmsex.decrypt(cms, kek: {"key 1", key})
+      iex> decrypted.content
+      "secret"
+      iex> {:error, error} = Cmsex.decrypt(cms, kek: {"key 1", :crypto.strong_rand_bytes(32)})
+      iex> error.reason
+      :decryption_failed
+
+  A MAC, with the same key:
+
+      iex> key = :crypto.strong_rand_bytes(32)
+      iex> {:ok, cms} = Cmsex.mac("content", Cmsex.Recipient.kek(key, "key 1"))
+      iex> {:ok, authenticated} = Cmsex.verify_mac(cms, kek: {"key 1", key})
+      iex> authenticated.content
+      "content"
   """
 
   alias Cmsex.{

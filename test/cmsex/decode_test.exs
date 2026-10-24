@@ -1,6 +1,7 @@
 defmodule Cmsex.DecodeTest do
   use ExUnit.Case, async: true
 
+  doctest Cmsex
   doctest Cmsex.PEM
   doctest Cmsex.Attribute
 
