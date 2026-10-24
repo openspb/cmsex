@@ -33,7 +33,8 @@ defmodule Cmsex.PasswordWrap do
   """
   @spec unwrap(atom(), binary(), binary(), pos_integer(), binary()) :: {:ok, binary()} | :error
   def unwrap(cipher, kek, iv, block_size, wrapped)
-      when byte_size(wrapped) >= 2 * block_size and rem(byte_size(wrapped), block_size) == 0 do
+      when is_integer(block_size) and byte_size(wrapped) >= 2 * block_size and
+             rem(byte_size(wrapped), block_size) == 0 do
     head_size = byte_size(wrapped) - block_size
     <<head::binary-size(head_size), last::binary-size(block_size)>> = wrapped
     previous = binary_part(head, head_size - block_size, block_size)
