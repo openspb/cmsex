@@ -354,24 +354,38 @@ defmodule Cmsex.Algorithm do
   def signature_identifier(:rsa_pkcs1, _hash), do: {:seq, [{:oid, :rsa_encryption}, :null]}
 
   def signature_identifier(:rsa_pss, hash),
-    do: {:seq, [{:oid, :rsassa_pss}, pss_params_term(hash)]}
+    do:
+      pss_identifier(%{
+        hash: hash,
+        mgf_hash: hash,
+        salt_length: Digest.size(hash),
+        trailer_field: 1
+      })
 
   def signature_identifier(:ecdsa, hash), do: {:seq, [{:oid, Map.fetch!(@ecdsa, hash)}]}
 
   def signature_identifier(:ed25519, _hash), do: {:seq, [{:oid, :ed25519}]}
   def signature_identifier(:ed448, _hash), do: {:seq, [{:oid, :ed448}]}
 
-  # RFC 4055 3.1: the hash identifiers inside take NULL; the salt is the size
-  # of the hash; the trailer field is left to its default.
-  defp pss_params_term(hash) do
-    hash_id = {:seq, [{:oid, hash}, :null]}
+  @doc """
+  An id-RSASSA-PSS AlgorithmIdentifier (RFC 4055, 3.1): the hash
+  identifiers inside take NULL, and the fields equal to their defaults
+  (SHA-1, a salt of 20 bytes, the trailer field 1) are left out, as DER
+  asks.
+  """
+  @spec pss_identifier(pss()) :: DER.term_()
+  def pss_identifier(%{hash: hash, mgf_hash: mgf_hash, salt_length: salt, trailer_field: trailer}) do
+    fields =
+      [
+        hash != :sha1 && {:explicit, 0, {:seq, [{:oid, hash}, :null]}},
+        mgf_hash != :sha1 &&
+          {:explicit, 1, {:seq, [{:oid, :mgf1}, {:seq, [{:oid, mgf_hash}, :null]}]}},
+        salt != 20 && {:explicit, 2, {:int, salt}},
+        trailer != 1 && {:explicit, 3, {:int, trailer}}
+      ]
+      |> Enum.filter(& &1)
 
-    {:seq,
-     [
-       {:explicit, 0, hash_id},
-       {:explicit, 1, {:seq, [{:oid, :mgf1}, hash_id]}},
-       {:explicit, 2, {:int, Digest.size(hash)}}
-     ]}
+    {:seq, [{:oid, :rsassa_pss}, {:seq, fields}]}
   end
 
   @doc "RSAES-OAEP-params for a hash, with MGF1 of the same hash and no label."

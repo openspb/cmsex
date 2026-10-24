@@ -3,7 +3,7 @@ defmodule Cmsex do
   Cryptographic Message Syntax (CMS, RFC 5652) in pure Elixir.
   """
 
-  alias Cmsex.{Error, Options, PEM, SignedData, Verified, Verify}
+  alias Cmsex.{Error, Options, PEM, Sign, SignedData, Signer, Verified, Verify}
 
   @decode_options Options.limits()
 
@@ -150,5 +150,88 @@ defmodule Cmsex do
   def verify_each(cms, opts \\ []) do
     opts = Options.take!(opts, @verify_options -- [:signers])
     with {:ok, der} <- PEM.input(cms), do: Verify.verify_each(der, opts)
+  end
+
+  @doc """
+  Signs `content` and returns a SignedData message in DER (use
+  `Cmsex.PEM.encode/2` for PEM).
+
+  `signers` is one signer or a list of them, each a `Cmsex.Signer`, or a
+  map or keyword list with its fields: at least the certificate and the
+  private key.
+
+      signer = %{certificate: cert_der, key: key_der, chain: [ca_der]}
+      {:ok, cms} = Cmsex.sign(content, signer)
+      {:ok, p7s} = Cmsex.sign(content, signer, detached: true)
+
+  The content is a binary, `{:stream, enumerable}` read once to compute the
+  digests, or `{:digest, hash, digest}` already computed, which every
+  signer must use. A stream or a digest makes a detached message with
+  signed attributes.
+
+  Each signer gets the content-type and message-digest attributes, the
+  signing time and the CMSAlgorithmProtection attribute (RFC 6211) unless
+  turned off, and its own attributes; see `Cmsex.Signer`. The algorithms
+  are checked with the policy of `verify/2`, and SHA-1 is never used.
+
+  Options:
+
+    * `:detached` - leave the content out of the message (`false` for a
+      binary; a stream or a digest is always detached).
+    * `:content_type` - the type of the content (`:data`), a name of
+      `Cmsex.OID` or an OID tuple. Another type needs signed attributes.
+    * `:no_attributes` - sign without signed attributes (`false`): only
+      for id-data given as a binary, and only for a verifier that cannot
+      read them, since nothing then binds the algorithms or the time.
+    * `:certificates` - `:signers` (the certificate and `:chain` of each
+      signer, the default), `:none`, or a list of DER certificates.
+    * `:crls` - revocation lists in DER (`[]`).
+    * `:min_rsa_bits` - the shortest RSA key accepted (2048).
+    * `:digest`, `:rsa_padding`, `:identifier`, `:signing_time` and
+      `:algorithm_protection` - defaults for the signers that leave them
+      out; see `Cmsex.Signer`.
+
+  The versions are those of RFC 5652, 5.1 and 5.3. Errors that belong to
+  one signer carry its position in `:signer`.
+  """
+  @spec sign(
+          binary() | {:stream, Enumerable.t()} | {:digest, atom(), binary()},
+          Signer.t() | map() | keyword() | [Signer.t() | map() | keyword()],
+          keyword()
+        ) :: {:ok, binary()} | {:error, Error.t()}
+  def sign(content, signers, opts \\ []), do: Sign.sign(content, signers, opts)
+
+  @doc "Like `sign/3`, but raises `Cmsex.Error`."
+  @spec sign!(
+          binary() | {:stream, Enumerable.t()} | {:digest, atom(), binary()},
+          Signer.t() | map() | keyword() | [Signer.t() | map() | keyword()],
+          keyword()
+        ) :: binary()
+  def sign!(content, signers, opts \\ []) do
+    case sign(content, signers, opts) do
+      {:ok, cms} -> cms
+      {:error, error} -> raise error
+    end
+  end
+
+  @doc """
+  A SignedData message with certificates and revocation lists and no
+  signers (RFC 5652, 5.2), as in a `.p7b` file: version 1, no digest
+  algorithms, id-data without content. Takes the option `:crls`, a list of
+  DER revocation lists.
+
+  Other tools read a `.p7b` in PEM mostly with the `PKCS7` label:
+  `Cmsex.PEM.encode(p7b, :pkcs7)`. `certificates/2` reads it back.
+  """
+  @spec certs_only([binary()], keyword()) :: {:ok, binary()} | {:error, Error.t()}
+  def certs_only(certificates, opts \\ []), do: Sign.certs_only(certificates, opts)
+
+  @doc "Like `certs_only/2`, but raises `Cmsex.Error`."
+  @spec certs_only!([binary()], keyword()) :: binary()
+  def certs_only!(certificates, opts \\ []) do
+    case certs_only(certificates, opts) do
+      {:ok, p7b} -> p7b
+      {:error, error} -> raise error
+    end
   end
 end
