@@ -98,7 +98,7 @@ defmodule Cmsex.OID do
     dh_public_number: {1, 2, 840, 10_046, 2, 1},
     esdh: {1, 2, 840, 113_549, 1, 9, 16, 3, 5},
     # Content encryption and key wrap (RFC 3565, RFC 5084, RFC 3394, RFC 5649,
-    # RFC 3370, RFC 3217)
+    # RFC 3370, RFC 3217, RFC 8103)
     aes128_cbc: {2, 16, 840, 1, 101, 3, 4, 1, 2},
     aes192_cbc: {2, 16, 840, 1, 101, 3, 4, 1, 22},
     aes256_cbc: {2, 16, 840, 1, 101, 3, 4, 1, 42},
@@ -119,10 +119,14 @@ defmodule Cmsex.OID do
     des_cbc: {1, 3, 14, 3, 2, 7},
     cms3des_wrap: {1, 2, 840, 113_549, 1, 9, 16, 3, 6},
     cmsrc2_wrap: {1, 2, 840, 113_549, 1, 9, 16, 3, 7},
-    # Passwords and MACs (RFC 3211, RFC 8018, RFC 4231, RFC 3370)
+    chacha20_poly1305: {1, 2, 840, 113_549, 1, 9, 16, 3, 18},
+    # Passwords and MACs (RFC 3211, RFC 8018, RFC 4231, RFC 3370). HMAC with
+    # SHA-1 has two: hMAC-SHA1, the MAC of RFC 3370, and hmacWithSHA1, the
+    # pseudorandom function of PBKDF2 in RFC 8018.
     pwri_kek: {1, 2, 840, 113_549, 1, 9, 16, 3, 9},
     pbkdf2: {1, 2, 840, 113_549, 1, 5, 12},
-    hmac_sha1: {1, 2, 840, 113_549, 2, 7},
+    hmac_sha1: {1, 3, 6, 1, 5, 5, 8, 1, 2},
+    hmac_with_sha1: {1, 2, 840, 113_549, 2, 7},
     hmac_sha224: {1, 2, 840, 113_549, 2, 8},
     hmac_sha256: {1, 2, 840, 113_549, 2, 9},
     hmac_sha384: {1, 2, 840, 113_549, 2, 10},
