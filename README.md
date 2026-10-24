@@ -299,6 +299,11 @@ returns its structure: `Cmsex.SignedData`, `Cmsex.EnvelopedData`,
 Not supported: DSA signatures (`:unsupported_algorithm`), compressed data
 (RFC 3274), KEMRecipientInfo (RFC 9629) and OtherRecipientInfo.
 
+A CMSAlgorithmProtection attribute that names another digest or signature
+algorithm than its SignerInfo fails with `:algorithm_mismatch`. OpenSSL 3.6,
+LibreSSL 3.3 and GnuTLS 3.8 do not check the attribute, and verify such a
+message, so a message they accept may be refused here.
+
 The fixtures of the test suite are messages signed by OpenSSL 3, LibreSSL,
 GnuTLS, Python's `cryptography` and Java's `jarsigner`, and encrypted by
 OpenSSL 3, LibreSSL and Python, for each algorithm they write; the examples
