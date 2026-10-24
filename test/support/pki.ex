@@ -17,6 +17,15 @@ defmodule Cmsex.TestPKI do
   """
   def key(name) do
     case :persistent_term.get({__MODULE__, name}, nil) do
+      nil -> :global.trans({{__MODULE__, name}, self()}, fn -> generate_once(name) end)
+      key -> key
+    end
+  end
+
+  # Under a lock, so that two tests that ask for the same key at the same
+  # time get the same one.
+  defp generate_once(name) do
+    case :persistent_term.get({__MODULE__, name}, nil) do
       nil ->
         key = generate(kind(name))
         :persistent_term.put({__MODULE__, name}, key)
