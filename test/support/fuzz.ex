@@ -1,6 +1,7 @@
 defmodule Cmsex.TestFuzz do
   @moduledoc false
-  # Inputs for the robustness tests: the messages of the fixtures, changed
+  # Inputs for the robustness tests: the messages of the fixtures, signed
+  # and encrypted, changed
   # by a few random edits, and random bytes, alone or behind the header of
   # a SignedData, so that they get past the first checks. Every public
   # function that reads or changes a message must return `{:ok, _}` or
@@ -10,7 +11,7 @@ defmodule Cmsex.TestFuzz do
 
   import Bitwise
 
-  alias Cmsex.{DER, TestFixtures}
+  alias Cmsex.{DER, EncryptedFixtures, TestFixtures}
 
   @rfc4134 Path.expand("../fixtures/rfc4134", __DIR__)
 
@@ -19,11 +20,15 @@ defmodule Cmsex.TestFuzz do
     generated =
       for name <- TestFixtures.messages(), do: {name, TestFixtures.read!(name)}
 
+    encrypted =
+      for name <- EncryptedFixtures.messages(),
+          do: {"encrypted/" <> name, EncryptedFixtures.read!(name)}
+
     rfc4134 =
       for path <- Path.wildcard(Path.join(@rfc4134, "*.bin")),
           do: {"rfc4134/" <> Path.basename(path), File.read!(path)}
 
-    generated ++ rfc4134
+    generated ++ encrypted ++ rfc4134
   end
 
   @doc "A message of the corpus with one to eight edits."
@@ -141,8 +146,11 @@ defmodule Cmsex.TestFuzz do
       verify: fn -> Cmsex.verify(input, opts) end,
       verify_any: fn -> Cmsex.verify(input, [signers: :any] ++ opts) end,
       verify_detached: fn -> Cmsex.verify(input, content: TestFixtures.content()) end,
-      verify_each: fn -> Cmsex.verify_each(input, opts) end
+      verify_each: fn -> Cmsex.verify_each(input, opts) end,
+      verify_digest: fn -> Cmsex.verify_digest(input, allow_sha1: true) end,
+      verify_digest_detached: fn -> Cmsex.verify_digest(input, content: "x") end
     ]
+    |> Kernel.++(secrets(input))
     |> Kernel.++(changes(input))
     |> Enum.flat_map(fn {name, fun} ->
       case run(fun) do
@@ -150,6 +158,32 @@ defmodule Cmsex.TestFuzz do
         bad -> [{name, bad}]
       end
     end)
+  end
+
+  # Decryption and MACs with each kind of credentials of the encrypted
+  # fixtures, with few iterations of PBKDF2 so that a changed count stays
+  # quick.
+  defp secrets(input) do
+    limits = [max_iterations: 4096]
+
+    credentials = [
+      rsa: EncryptedFixtures.credentials("rsa2048"),
+      ec: EncryptedFixtures.credentials("p256"),
+      x25519: EncryptedFixtures.credentials("x25519"),
+      kek: [kek: {EncryptedFixtures.kek_id(), EncryptedFixtures.secret(16)}],
+      password: [password: EncryptedFixtures.password()],
+      content_key: [content_key: EncryptedFixtures.secret(16)]
+    ]
+
+    for {name, opts} <- credentials, function <- [:decrypt, :verify_mac] do
+      # verify_mac/2 takes the key itself as :mac_key.
+      opts =
+        if function == :verify_mac and name == :content_key,
+          do: [mac_key: EncryptedFixtures.secret(16)],
+          else: opts
+
+      {:"#{function}_#{name}", fn -> apply(Cmsex, function, [input, opts ++ limits]) end}
+    end
   end
 
   # The functions that change a message. A position that the message does

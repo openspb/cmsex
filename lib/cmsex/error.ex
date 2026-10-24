@@ -9,7 +9,8 @@ defmodule Cmsex.Error do
   countersignature of the first signer); `:recipient` is the position of
   the recipient in the list given to `Cmsex.encrypt/3` when the error
   belongs to one; `:detail` adds what went wrong where that helps, such as
-  the OID of an unknown algorithm in dotted form.
+  the OID of an unknown algorithm, a tuple, which the message shows in
+  dotted form.
 
   Reading:
 

@@ -3,11 +3,19 @@ defmodule Cmsex.EncryptedTest do
 
   # The messages of test/fixtures/encrypted, written by OpenSSL 3, LibreSSL
   # and Python cryptography for the recipients there (see gen_encrypted.sh
-  # and INFO.txt there).
+  # and INFO.txt there), and by Cmsex itself (gen_written.exs).
 
   import Cmsex.EncryptedFixtures
 
-  alias Cmsex.{Decrypted, DigestedData, EncryptedData, EnvelopedData, Error, RecipientInfo}
+  alias Cmsex.{
+    Authenticated,
+    Decrypted,
+    DigestedData,
+    EncryptedData,
+    EnvelopedData,
+    Error,
+    RecipientInfo
+  }
 
   # {message, credentials, cipher, recipient}, the credentials as a
   # recipient of the material, :kek or :password, and the recipient as the
@@ -97,14 +105,35 @@ defmodule Cmsex.EncryptedTest do
     {"o3_p256_des3_wrap_aes", "p256", :decryption_failed, nil}
   ]
 
+  # The messages of Cmsex: {message, function, the credentials of each
+  # recipient}. Some have content of another type, an OID of the arc of
+  # RFC 5612 for documentation.
+  @written [
+    {"cmsex_enveloped", :decrypt, ["rsa2048", "p256", "bp256", "x25519", :kek, :password]},
+    {"cmsex_enveloped_ski", :decrypt, ["rsa3072", "p384"]},
+    {"cmsex_enveloped_hkdf", :decrypt, ["p256", "p521", "x448"]},
+    {"cmsex_auth_enveloped_gcm", :decrypt, ["rsa2048", :kek]},
+    {"cmsex_auth_enveloped_ccm", :decrypt, [:kek, "bp384"]},
+    {"cmsex_auth_enveloped_chacha", :decrypt, ["x448", :password]},
+    {"cmsex_encrypted", :decrypt, [:content_key]},
+    {"cmsex_auth_data", :verify_mac, ["rsa2048", "p256", "x25519", :kek, :password]},
+    {"cmsex_auth_data_attributes", :verify_mac, [:kek, "p384"]},
+    {"cmsex_digested", :verify_digest, [:none]},
+    {"cmsex_digested_other_type", :verify_digest, [:none]}
+  ]
+
+  @other_type {1, 3, 6, 1, 4, 1, 32_473, 3}
+
   # The options of decrypt/2 for the credentials of a message: the KEK has
   # the size of its key wrap.
   defp options(message, :kek), do: [kek: {kek_id(), secret(kek_size(message))}]
   defp options(_message, :password), do: [password: password()]
+  defp options(_message, :content_key), do: [content_key: secret(24)]
+  defp options(_message, :none), do: []
   defp options(_message, name), do: credentials(name)
 
   defp kek_size(message) do
-    {:ok, %EnvelopedData{recipient_infos: infos}} = Cmsex.decode(read!(message <> ".p7m"))
+    {:ok, %{recipient_infos: infos}} = Cmsex.decode(read!(message <> ".p7m"))
     %RecipientInfo{key_encryption_algorithm: wrap} = Enum.find(infos, &(&1.type == :kek))
     Cmsex.Recipient.wrap_size(wrap)
   end
@@ -116,7 +145,10 @@ defmodule Cmsex.EncryptedTest do
 
   test "every message is here" do
     listed =
-      Enum.map(@enveloped ++ @encrypted ++ @digested ++ @invalid, &(elem(&1, 0) <> ".p7m"))
+      Enum.map(
+        @enveloped ++ @encrypted ++ @digested ++ @invalid ++ @written,
+        &(elem(&1, 0) <> ".p7m")
+      )
 
     assert Enum.sort(Enum.uniq(listed)) == Enum.sort(messages())
   end
@@ -179,6 +211,46 @@ defmodule Cmsex.EncryptedTest do
                  decrypt(message, credentials),
                message
       end
+    end
+  end
+
+  describe "messages of Cmsex" do
+    test "each reads with the credentials of each of its recipients" do
+      for {message, function, all} <- @written, credentials <- all do
+        der = read!(message <> ".p7m")
+
+        assert {:ok, result} = apply(Cmsex, function, [der, options(message, credentials)]),
+               "#{message} with #{inspect(credentials)}"
+
+        assert result.content == content(), message
+        assert result.content_type in [:data, @other_type], message
+
+        case result do
+          %Decrypted{recipient: nil} -> assert credentials == :content_key
+          %Decrypted{recipient: %RecipientInfo{}} -> :ok
+          %Authenticated{recipient: %RecipientInfo{}} -> :ok
+          %DigestedData{} -> assert credentials == :none
+        end
+      end
+    end
+
+    test "what they carry besides the content" do
+      {:ok, decrypted} = Cmsex.decrypt(read!("cmsex_enveloped_hkdf.p7m"), credentials("x448"))
+      assert decrypted.message.certificates == [cert("ca")]
+      assert decrypted.recipient.key_encryption_algorithm == :std_dh_hkdf_sha512
+
+      {:ok, decrypted} =
+        Cmsex.decrypt(read!("cmsex_auth_enveloped_ccm.p7m"), credentials("bp384"))
+
+      assert decrypted.content_type == @other_type
+      assert byte_size(decrypted.message.mac) == 8
+
+      {:ok, authenticated} =
+        Cmsex.verify_mac(read!("cmsex_auth_data_attributes.p7m"), credentials("p384"))
+
+      assert authenticated.message.mac_algorithm == :hmac_sha384
+      assert authenticated.message.digest_algorithm == :sha512
+      assert authenticated.content_type == @other_type
     end
   end
 

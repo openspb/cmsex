@@ -2,7 +2,9 @@
 # Generates the test material in test/fixtures/encrypted: a CA and
 # recipients made with OpenSSL, and EnvelopedData, AuthEnvelopedData,
 # EncryptedData and DigestedData messages written for them by OpenSSL 3,
-# LibreSSL and Python (cryptography). Nothing comes from elsewhere.
+# LibreSSL and Python (cryptography). At the end, gen_written.exs adds the
+# messages of Cmsex itself for the same recipients. Nothing comes from
+# elsewhere.
 #
 # The signed material of test/fixtures/generated has its own script,
 # gen_fixtures.sh, and stays as it is when this one runs. As there, the
@@ -18,13 +20,15 @@
 #   O3   OpenSSL 3.x, with its legacy provider for RC2
 #   LRE  LibreSSL (the openssl of macOS)
 #   PY   Python 3 with the "cryptography" package
+# and mix, for the messages of Cmsex.
 set -euo pipefail
 
 O3=${O3:-/opt/homebrew/opt/openssl@3/bin/openssl}
 LRE=${LRE:-/usr/bin/openssl}
 PY=${PY:-python3}
 
-out="$(cd "$(dirname "$0")/../fixtures" && pwd)/encrypted"
+root="$(cd "$(dirname "$0")/../.." && pwd)"
+out="$root/test/fixtures/encrypted"
 rm -rf "$out"
 mkdir -p "$out"
 cd "$out"
@@ -62,14 +66,26 @@ $O3 req -x509 -key "$work/ca.key" -out ca.crt -days 7300 -subj "/O=Cmsex/CN=Cmse
 # recipient NAME KEY_KIND EXTENSIONS
 recipient() {
   local name=$1 kind=$2 ext=$3
+  local subject="/O=Cmsex/CN=Cmsex Recipient $name"
+  local issue=(-CA ca.crt -CAkey "$work/ca.key" -out "$name.crt" -days 7300
+    -extfile "$work/ext.cnf" -extensions "$ext")
   case $kind in
     rsa*) $O3 genpkey -algorithm RSA -pkeyopt "rsa_keygen_bits:${kind#rsa}" -out "$name.key" 2>/dev/null ;;
+    X25519 | X448) $O3 genpkey -algorithm "$kind" -out "$name.key" ;;
     *) $O3 genpkey -algorithm EC -pkeyopt "ec_paramgen_curve:$kind" -pkeyopt ec_param_enc:named_curve \
       -out "$name.key" ;;
   esac
-  $O3 req -new -key "$name.key" -subj "/O=Cmsex/CN=Cmsex Recipient $name" -out "$work/$name.csr"
-  $O3 x509 -req -in "$work/$name.csr" -CA ca.crt -CAkey "$work/ca.key" -out "$name.crt" \
-    -days 7300 -extfile "$work/ext.cnf" -extensions "$ext" 2>/dev/null
+  case $kind in
+    # X25519 and X448 cannot sign a request: the CA puts the key in.
+    X25519 | X448)
+      $O3 pkey -in "$name.key" -pubout -out "$work/$name.pub"
+      $O3 x509 -new -subj "$subject" -force_pubkey "$work/$name.pub" "${issue[@]}"
+      ;;
+    *)
+      $O3 req -new -key "$name.key" -subj "$subject" -out "$work/$name.csr"
+      $O3 x509 -req -in "$work/$name.csr" "${issue[@]}" 2>/dev/null
+      ;;
+  esac
 }
 
 recipient rsa2048 rsa2048 transport
@@ -79,6 +95,9 @@ recipient p384 P-384 agreement
 recipient p521 P-521 agreement
 recipient bp256 brainpoolP256r1 agreement
 recipient bp384 brainpoolP384r1 agreement
+# For the messages of Cmsex only: OpenSSL does not decrypt them in CMS.
+recipient x25519 X25519 agreement
+recipient x448 X448 agreement
 
 # message NAME TOOL OPERATION ARGS...: a message of content.txt, in binary
 # mode and DER.
@@ -200,6 +219,9 @@ Made by test/support/gen_encrypted.sh on $(date -u +%Y-%m-%d), with:
   $($O3 version)
   $($LRE version)
   $($PY -I -c 'import cryptography; print("Python cryptography", cryptography.__version__)')
+  Cmsex $(sed -n 's/^ *@version "\(.*\)"$/\1/p' "$root/mix.exs") at $(git -C "$root" rev-parse --short HEAD), for cmsex_*.p7m
 EOF
+
+(cd "$root" && MIX_ENV=test mix run test/support/gen_written.exs)
 
 echo "fixtures written to $out"
