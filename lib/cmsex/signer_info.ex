@@ -36,7 +36,7 @@ defmodule Cmsex.SignerInfo do
         as GeneralizedTime.
   """
 
-  alias Cmsex.{Algorithm, Attribute, DER, Error, OID, Options}
+  alias Cmsex.{Algorithm, Attribute, DER, Error, Message, OID, Options}
 
   @type sid ::
           {:issuer_and_serial, binary(), integer()} | {:subject_key_identifier, binary()}
@@ -214,8 +214,8 @@ defmodule Cmsex.SignerInfo do
          {:ok, {digest_oid, _}} <- Algorithm.read(fields.digest),
          {:ok, {signature_oid, params}} <- Algorithm.read(fields.signature_algorithm),
          {:ok, signature} <- DER.octets(fields.signature) do
-      with {:ok, signed} <- attributes(fields.signed, opts),
-           {:ok, unsigned} <- attributes(fields.unsigned, opts) do
+      with {:ok, signed} <- Message.attributes(fields.signed, opts),
+           {:ok, unsigned} <- Message.attributes(fields.unsigned, opts) do
         signer_info = %__MODULE__{
           version: version,
           sid: sid,
@@ -295,27 +295,6 @@ defmodule Cmsex.SignerInfo do
   end
 
   defp pss(_name, _params), do: nil
-
-  defp attributes(nil, _opts), do: {:ok, nil}
-
-  defp attributes(element, opts) do
-    children = DER.children(element)
-
-    if length(children) > opts.max_attributes do
-      {:error, Error.new(:limit_exceeded, :max_attributes)}
-    else
-      read_attributes(children, [])
-    end
-  end
-
-  defp read_attributes([], acc), do: {:ok, Enum.reverse(acc)}
-
-  defp read_attributes([element | rest], acc) do
-    case Attribute.read(element) do
-      {:ok, attribute} -> read_attributes(rest, [attribute | acc])
-      :error -> {:error, Error.new(:malformed, :attribute)}
-    end
-  end
 
   defp deviations(%__MODULE__{} = signer_info) do
     [

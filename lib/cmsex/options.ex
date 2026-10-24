@@ -12,6 +12,7 @@ defmodule Cmsex.Options do
     max_signers: 64,
     max_certificates: 256,
     max_attributes: 64,
+    max_recipients: 64,
     allow_sha1: false,
     min_rsa_bits: 2048,
     ed25519_digest: :lenient,
@@ -52,7 +53,7 @@ defmodule Cmsex.Options do
   def take!(opts, _keys),
     do: raise(ArgumentError, "expected a keyword list of options, got: #{inspect(opts)}")
 
-  defp check!(key, value) when key in @limits or key == :min_rsa_bits do
+  defp check!(key, value) when key in @limits or key in [:min_rsa_bits, :max_recipients] do
     unless is_integer(value) and value > 0,
       do:
         raise(ArgumentError, "#{inspect(key)} must be a positive integer, got: #{inspect(value)}")

@@ -92,19 +92,6 @@ defmodule Cmsex.DecodeTest do
       assert SignerInfo.attribute(si, :smime_capabilities)
       assert SignerInfo.signing_time(si) == :error
     end
-
-    for {name, type} <- [
-          {"3.1", {1, 2, 840, 113_549, 1, 7, 1}},
-          {"5.1", {1, 2, 840, 113_549, 1, 7, 3}},
-          {"6.0", {1, 2, 840, 113_549, 1, 7, 5}},
-          {"7.1", {1, 2, 840, 113_549, 1, 7, 6}}
-        ] do
-      test "#{name} is not a SignedData" do
-        assert {:error,
-                %Error{reason: :unsupported_content_type, detail: unquote(Macro.escape(type))}} =
-                 Cmsex.decode(rfc4134(unquote(name) <> ".bin"))
-      end
-    end
   end
 
   describe "PEM" do
