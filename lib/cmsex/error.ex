@@ -6,8 +6,10 @@ defmodule Cmsex.Error do
   bang variants raise it. Match on `:reason`; `:signer` is the position of
   the signer in the message (from 0) when the error belongs to one signer,
   or a list of positions for a countersignature (`[0, 1]` is the second
-  countersignature of the first signer); `:detail` adds what went wrong
-  where that helps, such as the OID of an unknown algorithm in dotted form.
+  countersignature of the first signer); `:recipient` is the position of
+  the recipient in the list given to `Cmsex.encrypt/3` when the error
+  belongs to one; `:detail` adds what went wrong where that helps, such as
+  the OID of an unknown algorithm in dotted form.
 
   Reading:
 
@@ -57,9 +59,9 @@ defmodule Cmsex.Error do
 
   Writing:
 
-    * `:invalid_key` - the signing key cannot be read.
+    * `:invalid_key` - the private key cannot be read.
     * `:invalid_certificate` - a certificate cannot be read.
-    * `:key_certificate_mismatch` - the key is not the key of the
+    * `:key_certificate_mismatch` - the private key is not the key of the
       certificate.
     * `:signer_failed` - the signing function returned an error, or a
       signature that does not verify.
@@ -68,8 +70,8 @@ defmodule Cmsex.Error do
 
   Decrypting:
 
-    * `:recipient_not_found` - no recipient of the message matches the key
-      that was given.
+    * `:recipient_not_found` - no recipient of the message matches the
+      credentials that were given.
     * `:decryption_failed` - the message does not decrypt with that key, or
       it was changed. The library gives no other detail, on purpose.
     * `:not_available` - the algorithm is known, but the `:crypto`
@@ -112,20 +114,23 @@ defmodule Cmsex.Error do
   @type t :: %__MODULE__{
           reason: reason(),
           signer: non_neg_integer() | [non_neg_integer()] | nil,
+          recipient: non_neg_integer() | nil,
           detail: term()
         }
 
-  defexception [:reason, :signer, :detail]
+  defexception [:reason, :signer, :recipient, :detail]
 
   @doc false
   @spec new(reason(), term()) :: t()
   def new(reason, detail \\ nil), do: %__MODULE__{reason: reason, detail: detail}
 
   @impl true
-  def message(%__MODULE__{reason: reason, signer: signer, detail: detail}) do
-    prefix(signer) <> describe(reason, detail)
+  def message(%__MODULE__{reason: reason, detail: detail} = error) do
+    prefix(error) <> describe(reason, detail)
   end
 
+  defp prefix(%__MODULE__{recipient: index}) when is_integer(index), do: "recipient #{index}: "
+  defp prefix(%__MODULE__{signer: signer}), do: prefix(signer)
   defp prefix(nil), do: ""
   defp prefix(index) when is_integer(index), do: "signer #{index}: "
   defp prefix([first | rest]), do: "countersignature #{Enum.join(rest, ".")} of signer #{first}: "
@@ -174,7 +179,7 @@ defmodule Cmsex.Error do
     do: "the signing-certificate attribute names another certificate"
 
   defp describe(:untrusted, detail), do: "untrusted certificate (#{show(detail)})"
-  defp describe(:invalid_key, _), do: "the signing key cannot be read"
+  defp describe(:invalid_key, _), do: "the private key cannot be read"
   defp describe(:invalid_certificate, _), do: "the certificate cannot be read"
 
   defp describe(:key_certificate_mismatch, _),
@@ -186,7 +191,7 @@ defmodule Cmsex.Error do
   defp describe(:invalid_recipient, detail), do: "invalid recipient (#{show(detail)})"
 
   defp describe(:recipient_not_found, _),
-    do: "no recipient of the message matches the key that was given"
+    do: "no recipient of the message matches the credentials that were given"
 
   defp describe(:decryption_failed, _), do: "decryption failed"
 

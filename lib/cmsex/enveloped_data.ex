@@ -198,9 +198,23 @@ defmodule Cmsex.EnvelopedData do
   def expected_version(%__MODULE__{type: :auth_enveloped_data}), do: 0
 
   def expected_version(%__MODULE__{} = enveloped_data) do
-    kind = Message.originator_kind(enveloped_data)
-    types = Enum.map(enveloped_data.recipient_infos, & &1.type)
-    originator? = enveloped_data.raw.originator_info != nil
+    version(
+      Message.originator_kind(enveloped_data),
+      enveloped_data.raw.originator_info != nil,
+      Enum.map(enveloped_data.recipient_infos, &{&1.type, &1.version}),
+      enveloped_data.unprotected_attributes != []
+    )
+  end
+
+  @doc false
+  # The rule of RFC 5652, 6.1, from the kind of the originator certificates
+  # and revocation lists, whether there is an OriginatorInfo, the type and
+  # version of each recipient, and whether there are unprotected
+  # attributes.
+  @spec version(:other | :v2_attribute | nil, boolean(), [{atom(), integer() | nil}], boolean()) ::
+          0 | 2 | 3 | 4
+  def version(kind, originator?, recipients, unprotected?) do
+    types = Enum.map(recipients, &elem(&1, 0))
 
     cond do
       kind == :other ->
@@ -209,8 +223,7 @@ defmodule Cmsex.EnvelopedData do
       kind == :v2_attribute or :password in types or :other in types ->
         3
 
-      not originator? and enveloped_data.unprotected_attributes == [] and
-          Enum.all?(enveloped_data.recipient_infos, &(&1.version == 0)) ->
+      not originator? and not unprotected? and Enum.all?(recipients, &(elem(&1, 1) == 0)) ->
         0
 
       true ->

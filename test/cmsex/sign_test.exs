@@ -700,7 +700,7 @@ defmodule Cmsex.SignTest do
     test "sign! returns the message or raises", ctx do
       assert is_binary(Cmsex.sign!("content", signer(ctx, :p256)))
 
-      assert_raise Error, "signer 0: the signing key cannot be read", fn ->
+      assert_raise Error, "signer 0: the private key cannot be read", fn ->
         Cmsex.sign!("content", signer(ctx, :p256, key: "junk"))
       end
     end

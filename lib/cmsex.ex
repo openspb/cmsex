@@ -6,13 +6,17 @@ defmodule Cmsex do
   alias Cmsex.{
     Attribute,
     AuthenticatedData,
+    Decrypt,
+    Decrypted,
     DigestedData,
     EncryptedData,
+    Envelope,
     EnvelopedData,
     Error,
     Message,
     Options,
     PEM,
+    Recipient,
     Sign,
     SignedData,
     Signer,
@@ -308,6 +312,181 @@ defmodule Cmsex do
   def certs_only!(certificates, opts \\ []) do
     case certs_only(certificates, opts) do
       {:ok, p7b} -> p7b
+      {:error, error} -> raise error
+    end
+  end
+
+  ## Encryption
+
+  @doc """
+  Encrypts `content`, a binary, for `recipients`, and returns an
+  EnvelopedData message in DER, or an AuthEnvelopedData (RFC 5083) when the
+  cipher is an authenticated one, such as AES-GCM.
+
+  `recipients` is one recipient or a list of them, each a
+  `Cmsex.Recipient` or a certificate in DER, which is taken as
+  `Cmsex.Recipient.certificate/2` with the defaults: RSA-OAEP for an RSA
+  key, ephemeral-static ECDH for an EC key, X25519 or X448.
+
+      {:ok, cms} = Cmsex.encrypt(content, alice_cert_der)
+
+      {:ok, cms} =
+        Cmsex.encrypt(content, [
+          alice_cert_der,
+          Cmsex.Recipient.kek(shared_key, "backup key 1"),
+          Cmsex.Recipient.password("correct horse battery staple")
+        ], cipher: :aes256_gcm)
+
+  The content-encryption key is random, new for each message, and wrapped
+  for each recipient. Every recipient is checked before anything is
+  encrypted; an error that belongs to one carries its position in
+  `:recipient`. A certificate whose keyUsage does not allow
+  keyEncipherment (RSA) or keyAgreement (the others) is
+  `:invalid_recipient` with detail `:key_usage`; a key that cannot encrypt,
+  such as Ed25519 or RSASSA-PSS, is `:invalid_recipient` with `:key_type`.
+
+  Options:
+
+    * `:cipher` - `:aes256_cbc` (the default), `:aes128_cbc` or
+      `:aes192_cbc` for EnvelopedData (RFC 3565); `:aes128_gcm`,
+      `:aes192_gcm`, `:aes256_gcm`, the same with `_ccm` (RFC 5084), or
+      `:chacha20_poly1305` (RFC 8103) for AuthEnvelopedData.
+    * `:tag_size` - the size of the tag of an authenticated cipher, in
+      bytes (16): 12 to 16 for GCM, an even number from 4 to 16 for CCM,
+      16 for ChaCha20-Poly1305.
+    * `:content_type` - the type of the content (`:data`), a name of
+      `Cmsex.OID` or an OID tuple.
+    * `:detached` - leave the encrypted content out of the message
+      (`false`); the result is then `{:ok, {cms, encrypted_content}}`, and
+      `decrypt/2` takes the encrypted content in `:content`.
+    * `:unprotected_attributes` - a list of `Cmsex.Attribute` that nothing
+      protects: the unprotectedAttrs of EnvelopedData, the unauthAttrs of
+      AuthEnvelopedData (`[]`).
+    * `:authenticated_attributes` - for an authenticated cipher, a list of
+      `Cmsex.Attribute` that the tag covers (`[]`). The content-type
+      attribute is written by the library, with them or for a content type
+      other than `:data`; the message-digest attribute is not written
+      (RFC 5083, 2.1).
+    * `:certificates` and `:crls` - certificates and revocation lists in
+      DER for the OriginatorInfo (`[]`).
+    * `:min_rsa_bits` - the shortest RSA key accepted (2048).
+
+  The versions are those of RFC 5652, 6.1 and of the RecipientInfos.
+  """
+  @spec encrypt(binary(), Recipient.t() | binary() | [Recipient.t() | binary()], keyword()) ::
+          {:ok, binary() | {binary(), binary()}} | {:error, Error.t()}
+  def encrypt(content, recipients, opts \\ []), do: Envelope.encrypt(content, recipients, opts)
+
+  @doc "Like `encrypt/3`, but raises `Cmsex.Error`."
+  @spec encrypt!(binary(), Recipient.t() | binary() | [Recipient.t() | binary()], keyword()) ::
+          binary() | {binary(), binary()}
+  def encrypt!(content, recipients, opts \\ []) do
+    case encrypt(content, recipients, opts) do
+      {:ok, cms} -> cms
+      {:error, error} -> raise error
+    end
+  end
+
+  @doc """
+  Encrypts `content` with `key`, a content-encryption key the parties
+  manage by other means, and returns an EncryptedData message in DER
+  (RFC 5652, 8). There are no recipients, and nothing in the message says
+  which key it is: `decrypt/2` takes it in `:content_key`.
+
+  Options: `:cipher`, a CBC one, as in `encrypt/3` (`:aes256_cbc`), since
+  EncryptedData has no place for a tag; `:content_type`; `:detached`; and
+  `:unprotected_attributes`. A key that is not of the size of the cipher
+  raises `ArgumentError`.
+
+  To share a key for many messages, `Cmsex.Recipient.kek/3` with
+  `encrypt/3` is often the better choice: a new key for each message,
+  with an authenticated cipher if wanted, and the identifier of the key in
+  the message.
+  """
+  @spec encrypt_with_key(binary(), binary(), keyword()) ::
+          {:ok, binary() | {binary(), binary()}}
+  def encrypt_with_key(content, key, opts \\ []),
+    do: Envelope.encrypt_with_key(content, key, opts)
+
+  @doc "Like `encrypt_with_key/3`, but returns the message alone."
+  @spec encrypt_with_key!(binary(), binary(), keyword()) :: binary() | {binary(), binary()}
+  def encrypt_with_key!(content, key, opts \\ []) do
+    {:ok, cms} = encrypt_with_key(content, key, opts)
+    cms
+  end
+
+  @doc """
+  Decrypts an EnvelopedData, AuthEnvelopedData or EncryptedData message,
+  in DER, BER or PEM.
+
+      {:ok, %Cmsex.Decrypted{content: content}} =
+        Cmsex.decrypt(cms, key: key_der, certificate: cert_der)
+
+      {:ok, decrypted} = Cmsex.decrypt(cms, password: "correct horse battery staple")
+
+  The credentials, one or more of:
+
+    * `:key` and `:certificate` - a private key and its certificate, in
+      DER (PKCS #8, PKCS #1 or SEC 1 for the key, which may also be a key
+      record of `:public_key`). The certificate finds the recipient: a
+      KeyTransRecipientInfo for RSA, a KeyAgreeRecipientInfo for EC, X25519
+      and X448, by issuer and serial number or subject key identifier. The
+      key may also be a function of one argument, for a key kept in an
+      HSM, which gets a map and returns `{:ok, bytes}` or `{:error, term}`:
+        * `%{operation: :decrypt, padding: :oaep, ciphertext:, hash:,
+          mgf_hash:, label:}` - RSAES-OAEP decryption;
+        * `%{operation: :decrypt, padding: :pkcs1, ciphertext:}` - RSA
+          PKCS #1 v1.5 decryption, which should itself follow RFC 3218;
+        * `%{operation: :agree, curve:, public_key:}` - the ECDH, X25519 or
+          X448 shared secret with the public key of the sender.
+    * `:kek` - `{key_identifier, key}`, for a KEKRecipientInfo with that
+      identifier.
+    * `:password` - for a PasswordRecipientInfo, taken as bytes.
+    * `:content_key` - the content-encryption key itself: the key of an
+      EncryptedData, or of any message, which skips the recipients.
+
+  The recipients that the credentials name are tried in the order of the
+  message, and the first that gives a key decrypts the content. Errors:
+
+    * `:invalid_key`, `:invalid_certificate` and
+      `:key_certificate_mismatch` - for the credentials.
+    * `:recipient_not_found` - no recipient for the credentials.
+    * `:unsupported_algorithm`, `:not_available`, `:malformed`, or
+      `:limit_exceeded` with detail `:max_iterations` - what can be told
+      without the secrets.
+    * `:decryption_failed` - anything else: a wrong key, a key wrap, a
+      padding or a tag that does not check, a message that was changed.
+      Nothing tells these apart, on purpose. For RSA PKCS #1 v1.5, which
+      the library reads but never writes, a padding that does not check
+      gives a random key, so that the failure comes from the content, as
+      RFC 3218 asks.
+    * `:content_required` and `:unexpected_content` - as in `verify/2`.
+    * for AuthEnvelopedData, `:missing_attribute`, `:invalid_attribute`
+      and `:content_type_mismatch`, about the content-type attribute,
+      once the tag has checked.
+
+  EnvelopedData and EncryptedData use CBC, which has no integrity check: a
+  changed ciphertext, or rarely a wrong key, can decrypt to garbage rather
+  than fail. AuthEnvelopedData detects both; sign the content, or use an
+  authenticated cipher, when that matters.
+
+  Other options:
+
+    * `:content` - the encrypted content of a detached message, a binary.
+    * `:max_iterations` - the most PBKDF2 iterations accepted for a
+      password (2,000,000), since the sender chooses them.
+    * the limits of `decode/2`.
+
+  Without any credentials, `ArgumentError`.
+  """
+  @spec decrypt(binary(), keyword()) :: {:ok, Decrypted.t()} | {:error, Error.t()}
+  def decrypt(cms, opts \\ []), do: Decrypt.decrypt(cms, opts)
+
+  @doc "Like `decrypt/2`, but raises `Cmsex.Error`."
+  @spec decrypt!(binary(), keyword()) :: Decrypted.t()
+  def decrypt!(cms, opts \\ []) do
+    case decrypt(cms, opts) do
+      {:ok, decrypted} -> decrypted
       {:error, error} -> raise error
     end
   end

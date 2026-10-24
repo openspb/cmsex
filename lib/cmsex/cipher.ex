@@ -101,6 +101,15 @@ defmodule Cmsex.Cipher do
       else: raise(ArgumentError, "invalid tag size #{inspect(tag_size)} for #{mode}")
   end
 
+  @doc "The block size of a CBC cipher, or `nil` for the authenticated ones."
+  @spec block_size(t()) :: pos_integer() | nil
+  def block_size(cipher) do
+    case mode(cipher) do
+      {:cbc, size} -> size
+      _ -> nil
+    end
+  end
+
   @doc "A random key for the cipher."
   @spec random_key(t()) :: binary()
   def random_key(%{key_size: size}), do: :crypto.strong_rand_bytes(size)

@@ -388,8 +388,13 @@ defmodule Cmsex.Algorithm do
     {:seq, [{:oid, :rsassa_pss}, {:seq, fields}]}
   end
 
-  @doc "RSAES-OAEP-params for a hash, with MGF1 of the same hash and no label."
+  @doc """
+  RSAES-OAEP-params for a hash, with MGF1 of the same hash and no label.
+  For SHA-1 every field is the default, and DER leaves them all out.
+  """
   @spec oaep_identifier(Digest.hash()) :: DER.term_()
+  def oaep_identifier(:sha1), do: {:seq, [{:oid, :rsaes_oaep}, {:seq, []}]}
+
   def oaep_identifier(hash) do
     hash_id = {:seq, [{:oid, hash}, :null]}
 

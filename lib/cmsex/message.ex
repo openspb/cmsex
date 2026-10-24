@@ -215,6 +215,36 @@ defmodule Cmsex.Message do
       else: read_attributes(children, [])
   end
 
+  @doc """
+  The value of the attribute of `type` in `attributes`, which must have
+  one, with one value: an OID for `:content_type`, an OCTET STRING for
+  `:message_digest`.
+  """
+  @spec read_attribute([Attribute.t()] | nil, :content_type | :message_digest) ::
+          {:ok, term()} | {:error, :missing | :invalid}
+  def read_attribute(attributes, type) do
+    case for(%Attribute{type: ^type} = attribute <- attributes || [], do: attribute) do
+      [] -> {:error, :missing}
+      [%Attribute{values: [value]}] -> attribute_value(type, value)
+      _ -> {:error, :invalid}
+    end
+  end
+
+  defp attribute_value(type, value) do
+    result =
+      case {type, DER.decode(value)} do
+        {:content_type, {:ok, element}} -> DER.oid(element)
+        {:message_digest, {:ok, element}} -> DER.octets(element)
+        _ -> :error
+      end
+
+    case result do
+      {:ok, oid} when type == :content_type -> {:ok, OID.name(oid)}
+      {:ok, value} -> {:ok, value}
+      :error -> {:error, :invalid}
+    end
+  end
+
   defp read_attributes([], acc), do: {:ok, Enum.reverse(acc)}
 
   defp read_attributes([element | rest], acc) do
