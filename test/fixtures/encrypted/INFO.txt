@@ -1,0 +1,5 @@
+Made by test/support/gen_encrypted.sh on 2026-10-24, with:
+
+  OpenSSL 3.6.0 1 Oct 2025 (Library: OpenSSL 3.6.0 1 Oct 2025)
+  LibreSSL 3.3.6
+  Python cryptography 50.0.2

@@ -6,7 +6,9 @@ defmodule Cmsex.Interop do
   #   CMSEX_LIBRESSL   a LibreSSL binary (the openssl of macOS)
   #   CMSEX_CERTTOOL   the certtool of GnuTLS (gnutls-certtool on macOS, where
   #                    /usr/bin/certtool is another program)
-  #   CMSEX_PYTHON     a Python 3 with the "cryptography" package, 42 or later
+  #   CMSEX_PYTHON     a Python 3 with the "cryptography" package, recent
+  #                    enough to sign with RSASSA-PSS and to encrypt with
+  #                    AES-256 (see @python_probe)
   #   CMSEX_JARSIGNER  the jarsigner of a JDK, 17 or later
   #
   # Without the variable, a few usual places are tried. A tool that is not
@@ -15,14 +17,16 @@ defmodule Cmsex.Interop do
 
   @tools [:openssl, :libressl, :certtool, :python, :jarsigner]
 
-  # The signing builder takes rsa_padding since cryptography 42; without
-  # it, the probe fails and Python counts as not found.
+  # What the interop tests use: the signing builder with rsa_padding, and
+  # the envelope builder with a choice of cipher. Without them, the probe
+  # fails and Python counts as not found.
   @python_probe """
   import inspect
   import cryptography
   from cryptography.hazmat.primitives.serialization import pkcs7
   pkcs7.load_der_pkcs7_certificates
   assert "rsa_padding" in inspect.signature(pkcs7.PKCS7SignatureBuilder.add_signer).parameters
+  pkcs7.PKCS7EnvelopeBuilder.set_content_encryption_algorithm
   print("cryptography", cryptography.__version__)
   """
 
