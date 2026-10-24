@@ -122,9 +122,9 @@ defmodule Cmsex.Options do
   than once: which of the values was meant cannot be told, and taking one
   in silence could weaken a check.
   """
-  @spec unique!(keyword(), String.t()) :: :ok
+  @spec unique!(list(), String.t()) :: :ok
   def unique!(opts, what \\ "option") do
-    keys = Keyword.keys(opts)
+    keys = for {key, _value} <- opts, do: key
 
     case keys -- Enum.uniq(keys) do
       [] -> :ok
