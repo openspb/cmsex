@@ -247,9 +247,7 @@ defmodule Cmsex.Authenticate do
 
     mac = hmac(hash, key, input)
 
-    if byte_size(mac) == byte_size(message.mac) and :crypto.hash_equals(mac, message.mac),
-      do: :ok,
-      else: {:error, Error.new(:invalid_mac)}
+    if Digest.equal?(mac, message.mac), do: :ok, else: {:error, Error.new(:invalid_mac)}
   end
 
   # Once the MAC has checked, the attributes are the sender's: the content
@@ -268,7 +266,7 @@ defmodule Cmsex.Authenticate do
          {:ok, value} <- read(attributes, :message_digest) do
       %{^digest => computed} = Digest.many(content, [digest])
 
-      if value == computed, do: :ok, else: {:error, Error.new(:digest_mismatch)}
+      if Digest.equal?(value, computed), do: :ok, else: {:error, Error.new(:digest_mismatch)}
     end
   end
 

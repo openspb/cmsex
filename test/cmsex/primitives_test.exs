@@ -23,6 +23,15 @@ defmodule Cmsex.PrimitivesTest do
       assert Digest.many({:digest, :sha256, "x"}, [:sha256, :sha512]) == %{sha256: "x"}
     end
 
+    test "equal?/2 compares any two binaries" do
+      digest = Digest.hash(:sha256, "abc")
+      assert Digest.equal?(digest, :binary.copy(digest))
+      refute Digest.equal?(digest, binary_part(digest, 0, 31))
+      refute Digest.equal?(digest, digest <> <<0>>)
+      refute Digest.equal?(digest, Digest.hash(:sha256, "abd"))
+      assert Digest.equal?("", "")
+    end
+
     property "a stream gives the digests of the binary, for any split" do
       check all data <- binary(max_length: 2000),
                 cuts <- list_of(integer(0..2000), max_length: 8) do

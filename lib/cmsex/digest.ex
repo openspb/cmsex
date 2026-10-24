@@ -15,6 +15,13 @@ defmodule Cmsex.Digest do
   @spec hashes() :: [hash(), ...]
   def hashes, do: @hashes
 
+  @doc """
+  Whether two digests, or two MACs, are the same, compared in constant time.
+  A digest is public, but comparing it so costs nothing.
+  """
+  @spec equal?(binary(), binary()) :: boolean()
+  def equal?(a, b), do: byte_size(a) == byte_size(b) and :crypto.hash_equals(a, b)
+
   @doc "The size of a digest, in bytes."
   @spec size(hash()) :: 16 | 20 | 28 | 32 | 48 | 64
   def size(:md5), do: 16

@@ -73,9 +73,11 @@ defmodule Cmsex.Digesting do
   # A ready digest only answers for its own hash.
   defp check(digest, hash, content) do
     case Digest.many(content, [hash]) do
-      %{^hash => ^digest} -> :ok
-      %{^hash => _other} -> {:error, Error.new(:digest_mismatch)}
-      %{} -> {:error, Error.new(:content_required, hash)}
+      %{^hash => computed} ->
+        if Digest.equal?(computed, digest), do: :ok, else: {:error, Error.new(:digest_mismatch)}
+
+      %{} ->
+        {:error, Error.new(:content_required, hash)}
     end
   end
 end

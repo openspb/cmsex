@@ -12,7 +12,7 @@ defmodule Cmsex.Update do
   # was and the additions keep its order; the encapsulated content is
   # written in DER when it was not.
 
-  alias Cmsex.{Algorithm, DER, Error, Options, Sign, SignedData, SignerInfo}
+  alias Cmsex.{Algorithm, DER, Digest, Error, Options, Sign, SignedData, SignerInfo}
 
   @sign_options [
     :certificates,
@@ -149,7 +149,7 @@ defmodule Cmsex.Update do
 
   defp mismatch?(digests, hash, digest) do
     case Map.fetch(digests, hash) do
-      {:ok, value} -> value != digest
+      {:ok, value} -> not Digest.equal?(value, digest)
       :error -> false
     end
   end

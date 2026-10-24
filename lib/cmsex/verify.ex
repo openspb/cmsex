@@ -327,7 +327,7 @@ defmodule Cmsex.Verify do
   defp message_digest(si, hash, target) do
     with {:ok, value} <- read(si, :message_digest),
          {:ok, digest} <- digest_of(target, hash) do
-      if equal?(value, digest), do: :ok, else: {:error, :digest_mismatch, nil}
+      if Digest.equal?(value, digest), do: :ok, else: {:error, :digest_mismatch, nil}
     end
   end
 
@@ -345,8 +345,6 @@ defmodule Cmsex.Verify do
       :error -> {:error, :content_required, hash}
     end
   end
-
-  defp equal?(a, b), do: byte_size(a) == byte_size(b) and :crypto.hash_equals(a, b)
 
   defp signing_time(si) do
     case SignerInfo.read_attribute(si, :signing_time) do
@@ -406,7 +404,9 @@ defmodule Cmsex.Verify do
          [{0x30, _, _} = ids | _policies] <- DER.children(seq),
          [first | _] <- DER.children(ids),
          {:ok, hash, cert_hash, issuer_serial} <- ess_cert_id(type, DER.children(first)) do
-      if equal?(Digest.hash(hash, cert.der), cert_hash) and issuer_serial?(issuer_serial, cert),
+      same? = Digest.equal?(Digest.hash(hash, cert.der), cert_hash)
+
+      if same? and issuer_serial?(issuer_serial, cert),
         do: :ok,
         else: {:error, :signing_certificate_mismatch, nil}
     else
